@@ -3,7 +3,7 @@
 //   chinese_province_city_area_mapper/cpca/matcher.py      （全文 1-96 行）
 //   chinese_province_city_area_mapper/cpca/__init__.py:43-60（AddrInfo: adcode 截断 / rank / belong_to）
 // 行为等价移植（引擎 spec §3 范式）：不复刻 Aho-Corasick 本体，只保证可观察
-// 行为一致 —— 键集合相同、枚举序相同（end 下标升序，同 end 短匹配在前）、
+// 行为一致 —— 键集合相同、枚举序相同（end 下标升序，同 end 最长匹配在前）、
 // 去重与消歧逐行对齐 matcher.py:71-95 / 13-20。上游 quirks 即契约，不做修正。
 
 ///|
