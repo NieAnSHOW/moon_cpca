@@ -6,7 +6,10 @@
 - 用例条数
 - 每条 input / umap / expected 8 字段值 / upstream_version
 逐项相等；另核 jsonl 行字段锁定 4 字段（不得有第五字段）、expected 恰为
-8 字段、逐行与文件级版本标识 = cpca 实际 __version__。
+8 字段、逐行与文件级版本标识 = cpca 实际 __version__——后者通过对 vendored
+chinese_province_city_area_mapper/cpca/__init__.py 的 VERSION 元组直读解析
+（不 import，避免副作用；该目录为只读 vendored、不入库，缺失时打印 NOTE 跳过
+该单项，0.5.5 外部锚由 testdata/golden_test.mbt 的版本断言承担）。
 不一致 = 非 0 退出并打印差异；一致 = exit 0 + OK 汇总行。
 
 .mbt 解析 = 针对 tools/gen_golden.py 固定序列化形态的递归下降回解
@@ -22,6 +25,9 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 JSONL_PATH = os.path.join(ROOT, "testdata", "golden.jsonl")
 MBT_PATH = os.path.join(ROOT, "testdata", "golden.mbt")
+CPCA_INIT_PATH = os.path.join(
+    ROOT, "chinese_province_city_area_mapper", "cpca", "__init__.py"
+)
 
 EXPECTED_KEYS = [
     "province",
@@ -244,51 +250,6 @@ class MbtParser:
             else:
                 self.error("expected , or ] in array")
 
-    def parse_field_name(self):
-        m = re.match(r"[A-Za-z_][A-Za-z_0-9]*", self.t[self.i:])
-        if not m:
-            self.error("expected field name")
-        self.i += len(m.group(0))
-        return m.group(0)
-
-    def parse_struct(self):
-        self.expect("{")
-        obj = {}
-        while True:
-            c = self.peek()
-            if c == "}":
-                self.i += 1
-                return obj
-            name = self.parse_field_name()
-            self.expect(":")
-            obj[name] = self.parse_value()
-            c = self.peek()
-            if c == ",":
-                self.i += 1
-            elif c == "}":
-                self.i += 1
-                return obj
-            else:
-                self.error("expected , or } in struct")
-
-    def parse_array(self):
-        self.expect("[")
-        items = []
-        while True:
-            c = self.peek()
-            if c == "]":
-                self.i += 1
-                return items
-            items.append(self.parse_value())
-            c = self.peek()
-            if c == ",":
-                self.i += 1
-            elif c == "]":
-                self.i += 1
-                return items
-            else:
-                self.error("expected , or ] in array")
-
     def parse_tuple(self):
         self.expect("(")
         items = [self.parse_value()]
@@ -341,6 +302,25 @@ def json_norm(v):
     return v
 
 
+def read_cpca_version():
+    """直读 vendored cpca __init__.py 的 `VERSION = (0, 5, 5)` 元组并拼出
+    __version__ 字符串（等价于上游 `".".join(map(str, VERSION))`），不 import、
+    零副作用。返回 None = vendored 文件不存在（该目录只读、不入库，属合法缺失）。"""
+    if not os.path.exists(CPCA_INIT_PATH):
+        return None
+    with open(CPCA_INIT_PATH, encoding="utf-8") as f:
+        text = f.read()
+    m = re.search(r"^VERSION\s*=\s*\(([^)]*)\)", text, re.M)
+    if not m:
+        raise ValueError(
+            "vendored cpca __init__.py 存在但缺少 VERSION 元组: %s" % CPCA_INIT_PATH
+        )
+    parts = [p.strip() for p in m.group(1).split(",") if p.strip()]
+    if not parts or not all(re.fullmatch(r"\d+", p) for p in parts):
+        raise ValueError("vendored cpca VERSION 元组形态非预期: %r" % m.group(1))
+    return ".".join(parts)
+
+
 def main():
     problems = []
     for path in (JSONL_PATH, MBT_PATH):
@@ -368,6 +348,22 @@ def main():
 
     if header_ver != (rows[0].get("upstream_version") if rows else None):
         problems.append("mbt 头部版本 %r ≠ jsonl 行版本 %r" % (header_ver, rows[0].get("upstream_version") if rows else None))
+
+    # 版本标识 = cpca 实际 __version__ 核验（docstring 契约；直读 vendored 源，不 import）
+    try:
+        cpca_ver = read_cpca_version()
+    except ValueError as e:
+        print("PARSE-FAIL cpca __init__.py: %s" % e)
+        return 1
+    if cpca_ver is None:
+        print(
+            "NOTE: vendored cpca __init__.py 缺失，跳过 __version__ 核验"
+            "（0.5.5 外部锚由 testdata/golden_test.mbt 版本断言承担）"
+        )
+    elif header_ver != cpca_ver:
+        problems.append(
+            "版本标识 ≠ cpca 实际 __version__: 产物=%r vendored=%r" % (header_ver, cpca_ver)
+        )
 
     if len(rows) != len(cases):
         problems.append("条数不一致: jsonl=%d mbt=%d" % (len(rows), len(cases)))
