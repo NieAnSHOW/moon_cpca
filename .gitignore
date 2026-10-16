@@ -1,1 +1,3 @@
 _build/
+# Python bytecode caches from the tools/ scripts and unit tests.
+__pycache__/

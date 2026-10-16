@@ -1,0 +1,7 @@
+# data/adcodes.mbt is a generated artifact whose identity is its sha256
+# (recorded in the plan's A11 evidence and in the product's own header
+# comment). Pin LF so a fresh checkout -- on machines with the global
+# default core.autocrlf=true -- has the same bytes as the committed blob
+# and as a regenerated file. Deliberately scoped to the generated artifact
+# only; no repo-wide EOL rewrite.
+data/adcodes.mbt text eol=lf

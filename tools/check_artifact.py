@@ -154,7 +154,12 @@ def load_csv(csv_path: Path) -> list:
     are ignored. level is derived from adcode via the suffix rule.
     """
     with open(csv_path, "r", encoding="utf-8-sig", newline="") as f:
-        rows = [row for row in csv.reader(f) if row]
+        try:
+            rows = [row for row in csv.reader(f) if row]
+        except csv.Error as exc:
+            # csv.Error is not caught by main's handler tuple; translate it
+            # into the documented clean path (exit 2 + named input, I-1).
+            raise CsvError("CSV 解析失败 (malformed CSV): %s" % exc)
     if not rows:
         raise CsvError("CSV 为空（无表头行）")
     header = rows[0]

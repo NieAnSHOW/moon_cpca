@@ -29,6 +29,11 @@ in which the six checks read `not_run`:
   3. 缺列 -- header missing (or adding) an expected column: stderr names
      the missing/extra column(s), e.g. `缺少列: name (missing column(s):
      name)`. The exact 4-column header stays mandatory.
+  4. CSV 无法解析 (malformed CSV) -- `csv.Error` raised by the reader while
+     iterating (e.g. "field larger than field limit"): stderr names the
+     CSV path plus the row where parsing stopped. `csv.Error` is NOT a
+     ValueError, so it is translated at both read sites (header + rows)
+     instead of reaching the top-level handler.
 
 --no-network-check: opt-in process-wide zero-network assertion (spec 4.3,
 PRD US-01 acceptance 3). Before ANY file I/O a `sys.addaudithook` (PEP 578)
@@ -230,6 +235,20 @@ def unescape_moonbit_string(s: str) -> str:
     return UNESCAPE_RE.sub(repl, s)
 
 
+def malformed_csv_error(csv_path: Path, lineno: int, exc: "csv.Error") -> ValueError:
+    """Translate a csv.Error into the module's clean-path ValueError.
+
+    `csv.Error` (e.g. "field larger than field limit (131072)") is raised
+    lazily by `csv.reader` and is NOT a ValueError, so it would escape the
+    top-level handler as a Python traceback with exit 1. Both read sites
+    funnel it here so the run keeps its contract: exit 2, no traceback, and
+    stderr naming the offending input file plus the row that stopped it.
+    """
+    return ValueError(
+        "malformed CSV (CSV 解析失败): %s (第 %d 行起): %s" % (csv_path, lineno, exc)
+    )
+
+
 def load_records(csv_path: Path) -> Tuple[List[Record], List[Dict[str, Any]], str]:
     """Read + schema-check the CSV.
 
@@ -251,6 +270,8 @@ def load_records(csv_path: Path) -> Tuple[List[Record], List[Dict[str, Any]], st
             header = next(reader)
         except StopIteration:
             raise ValueError("CSV is empty (no header row)")
+        except csv.Error as exc:
+            raise malformed_csv_error(csv_path, 1, exc)
         if header != EXPECTED_HEADER:
             # Name the SPECIFIC missing/extra columns (spec 4.3: stderr must
             # identify the missing item, e.g. 缺少列: name). The exact
@@ -276,44 +297,49 @@ def load_records(csv_path: Path) -> Tuple[List[Record], List[Dict[str, Any]], st
             parts.append("expected %r" % (EXPECTED_HEADER,))
             raise ValueError("; ".join(parts))
         lineno = 1  # header occupies line 1; data row i sits on line i+1
-        for row in reader:
-            lineno += 1
-            if not row:  # blank line (e.g. trailing newline handling)
-                continue
-            if len(row) != len(EXPECTED_HEADER):
-                violations.append(
-                    {
-                        "line": lineno,
-                        "csv_value": ",".join(row),
-                        "product_value": "rejected",
-                        "reason": "expected %d fields, got %d"
-                        % (len(EXPECTED_HEADER), len(row)),
-                    }
-                )
-                continue
-            adcode, name = row[0], row[1]
-            if not ADCODE_RE.match(adcode):
-                violations.append(
-                    {
-                        "line": lineno,
-                        "csv_value": adcode,
-                        "product_value": "rejected",
-                        "reason": "adcode 不匹配 ^[0-9]{6}0{6}$（12 位数字且第 7-12 位须全为 0）",
-                    }
-                )
-                continue
-            if not (NAME_MIN_LEN <= len(name) <= NAME_MAX_LEN):
-                violations.append(
-                    {
-                        "line": lineno,
-                        "csv_value": name,
-                        "product_value": "rejected",
-                        "reason": "name 长度须在 %d..%d 之间（实测 %d 字符）"
-                        % (NAME_MIN_LEN, NAME_MAX_LEN, len(name)),
-                    }
-                )
-                continue
-            records.append((adcode, name, derive_level(adcode)))
+        try:
+            for row in reader:
+                lineno += 1
+                if not row:  # blank line (e.g. trailing newline handling)
+                    continue
+                if len(row) != len(EXPECTED_HEADER):
+                    violations.append(
+                        {
+                            "line": lineno,
+                            "csv_value": ",".join(row),
+                            "product_value": "rejected",
+                            "reason": "expected %d fields, got %d"
+                            % (len(EXPECTED_HEADER), len(row)),
+                        }
+                    )
+                    continue
+                adcode, name = row[0], row[1]
+                if not ADCODE_RE.match(adcode):
+                    violations.append(
+                        {
+                            "line": lineno,
+                            "csv_value": adcode,
+                            "product_value": "rejected",
+                            "reason": "adcode 不匹配 ^[0-9]{6}0{6}$（12 位数字且第 7-12 位须全为 0）",
+                        }
+                    )
+                    continue
+                if not (NAME_MIN_LEN <= len(name) <= NAME_MAX_LEN):
+                    violations.append(
+                        {
+                            "line": lineno,
+                            "csv_value": name,
+                            "product_value": "rejected",
+                            "reason": "name 长度须在 %d..%d 之间（实测 %d 字符）"
+                            % (NAME_MIN_LEN, NAME_MAX_LEN, len(name)),
+                        }
+                    )
+                    continue
+                records.append((adcode, name, derive_level(adcode)))
+        except csv.Error as exc:
+            # csv.Error is not a ValueError and would otherwise escape the
+            # top-level handler as a traceback with exit 1 (I-1).
+            raise malformed_csv_error(csv_path, lineno + 1, exc)
     if not records and not violations:
         raise ValueError(
             "CSV 只有表头、无数据行 (header-only CSV: no data rows found "
@@ -543,17 +569,33 @@ def not_run_checks() -> Dict[str, Any]:
     }
 
 
-def write_report(payload: Dict[str, Any]) -> None:
-    """Best-effort report write; never masks the primary outcome."""
+def write_report(payload: Dict[str, Any]) -> Optional[str]:
+    """Best-effort report write; never masks the primary outcome.
+
+    Returns None when the report was written (or when no report path is
+    configured), else the OSError text -- callers echo that through
+    `report_line`, so a `report: <path>` pointer never names a file that
+    does not exist (M-1).
+    """
     if _REPORT_PATH is None:
-        return
+        return None
     try:
         _REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
         _REPORT_PATH.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
-    except OSError:
-        pass
+    except OSError as exc:
+        return str(exc)
+    return None
+
+
+def report_line(err: Optional[str]) -> str:
+    """The `report: <path>` line for `err` = write_report()'s result."""
+    if _REPORT_PATH is None:
+        return ""
+    if err is None:
+        return "report: %s" % _REPORT_PATH
+    return "report: %s (NOT written: %s)" % (_REPORT_PATH, err)
 
 
 def fail_run(
@@ -606,9 +648,9 @@ def fail_run(
                     sys.stderr.write(
                         "  [%s] %s\n" % (CHECK_TITLES[cid], json.dumps(d, ensure_ascii=False))
                     )
-    write_report(payload)
-    if _REPORT_PATH is not None:
-        sys.stderr.write("report: %s\n" % _REPORT_PATH)
+    line = report_line(write_report(payload))
+    if line:
+        sys.stderr.write(line + "\n")
     sys.exit(2)
 
 
@@ -758,6 +800,11 @@ def main(argv: Optional[List[str]] = None) -> int:
                 checks=checks,
                 staged_tmp=staged,
             )
+        # moon.pkg is ensured BEFORE the product is promoted: a failure
+        # here (OSError -> top-level fail_run) must leave the previous
+        # product byte-identical, per the module contract (M-2). The staged
+        # temp file is cleaned up by the except clause below.
+        created_pkg = ensure_moon_pkg(out_path)
     except BaseException:
         try:
             staged.unlink()
@@ -765,7 +812,6 @@ def main(argv: Optional[List[str]] = None) -> int:
             pass
         raise
     promote(staged, out_path)
-    created_pkg = ensure_moon_pkg(out_path)
 
     level_counts = {lv: sum(1 for _, _, l in records if l == lv) for lv in LEVELS}
     names = [n for _, n, _ in records]
@@ -803,7 +849,6 @@ def main(argv: Optional[List[str]] = None) -> int:
             "result": "passed",
             "socket_or_network_audit_events": _NETWORK_GUARD["events"],
         }
-    write_report(report_payload)
 
     print("generated: %s" % out_path)
     print(
@@ -823,7 +868,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         )
     if created_pkg:
         print("created: %s" % (out_path.parent / "moon.pkg"))
-    print("report: %s" % _REPORT_PATH)
+    line = report_line(write_report(report_payload))
+    if line:
+        print(line)
     return 0
 
 
