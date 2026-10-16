@@ -17,6 +17,29 @@ failure means: exit code 2, non-empty stderr naming the failed check(s),
 and a diagnostic report at <repo>/_build/gen_report.json while the
 previous product stays byte-identical.
 
+Input exception paths (spec 4.3, data spec section 4.3): every failure
+before staging goes through the SAME clean error path -- exit 2, no Python
+traceback, `gen_adcodes: error: ...` on stderr naming the SPECIFIC missing
+item, nothing written to the product path, and a `status: "failed"` report
+in which the six checks read `not_run`:
+  1. 文件缺失 -- `--csv <nonexistent>`: stderr carries the requested path
+     string verbatim plus the resolved absolute path.
+  2. 只有表头无数据行 -- header-only CSV: stderr carries "无数据行 / no
+     data rows".
+  3. 缺列 -- header missing (or adding) an expected column: stderr names
+     the missing/extra column(s), e.g. `缺少列: name (missing column(s):
+     name)`. The exact 4-column header stays mandatory.
+
+--no-network-check: opt-in process-wide zero-network assertion (spec 4.3,
+PRD US-01 acceptance 3). Before ANY file I/O a `sys.addaudithook` (PEP 578)
+is installed that raises on every socket/urllib network audit event
+(socket.* -- getaddrinfo / gethostbyname* / addr / connect / sendto /
+sendmsg / ... -- plus urllib.Request). Zero fired events -> the run
+completes normally and the report records the pass; any fired event ->
+exit 2 with a clear stderr message. The generator performs no network
+calls regardless of the flag; the flag merely turns that fact into
+machine-checkable evidence.
+
 Input schema (spec 4.2, controller-verified data facts):
   adcode: ^[0-9]{6}0{6}$  -- all 3511 real adcodes end with "000000";
   name:   1..15 characters -- V-04: real maximum name length = 15.
@@ -102,6 +125,51 @@ Record = Tuple[str, str, str]
 _REPORT_PATH: Optional[Path] = None
 _UNESCAPE_MAP = {"\\": "\\", '"': '"', "n": "\n", "r": "\r", "t": "\t"}
 
+# --- --no-network-check: process-wide zero-network assertion (PEP 578) ---
+# Every standard socket/network audit event. The hook below additionally
+# matches ANY event starting with "socket." (e.g. socket.__new__), so even
+# creating an unconnected socket object counts as a violation -- the
+# generator must use zero sockets, not merely zero connections.
+NETWORK_AUDIT_EVENTS = frozenset(
+    {
+        "socket.getaddrinfo",
+        "socket.gethostbyname",
+        "socket.gethostbyname_ex",
+        "socket.gethostbyaddr",
+        "socket.getservbyname",
+        "socket.getservbyport",
+        "socket.addr",
+        "socket.connect",
+        "socket.sendto",
+        "socket.sendmsg",
+        "urllib.Request",
+    }
+)
+
+_NETWORK_GUARD: Dict[str, Any] = {"enabled": False, "events": 0}
+
+
+class NetworkCheckViolation(RuntimeError):
+    """Raised by the audit hook when a network audit event fires."""
+
+
+def _network_audit_hook(event: str, args: Tuple[Any, ...]) -> None:
+    if not (event.startswith("socket.") or event in NETWORK_AUDIT_EVENTS):
+        return
+    _NETWORK_GUARD["events"] += 1
+    raise NetworkCheckViolation(
+        "network audit event fired under --no-network-check: %s %r" % (event, args)
+    )
+
+
+def install_network_guard() -> None:
+    """Install a sys.addaudithook aborting on any socket/network event.
+
+    Must be called BEFORE any file I/O so the whole run is covered.
+    """
+    sys.addaudithook(_network_audit_hook)
+    _NETWORK_GUARD["enabled"] = True
+
 
 def repo_root() -> Path:
     """Repository root = parent of the directory holding this script."""
@@ -184,9 +252,29 @@ def load_records(csv_path: Path) -> Tuple[List[Record], List[Dict[str, Any]], st
         except StopIteration:
             raise ValueError("CSV is empty (no header row)")
         if header != EXPECTED_HEADER:
-            raise ValueError(
-                "unexpected CSV header %r (expected %r)" % (header, EXPECTED_HEADER)
-            )
+            # Name the SPECIFIC missing/extra columns (spec 4.3: stderr must
+            # identify the missing item, e.g. 缺少列: name). The exact
+            # 4-column header stays mandatory.
+            missing = [c for c in EXPECTED_HEADER if c not in header]
+            extra = [c for c in header if c not in EXPECTED_HEADER]
+            parts = ["CSV 表头不符 (unexpected CSV header)"]
+            if missing:
+                parts.append(
+                    "缺少列: %s (missing column(s): %s)"
+                    % (",".join(missing), ",".join(missing))
+                )
+            if extra:
+                parts.append(
+                    "多出列: %s (extra column(s): %s)"
+                    % (",".join(extra), ",".join(extra))
+                )
+            if not missing and not extra:
+                parts.append(
+                    "列集合相同但顺序/重复不符 (same column set, wrong order or duplicates)"
+                )
+            parts.append("got %r" % (header,))
+            parts.append("expected %r" % (EXPECTED_HEADER,))
+            raise ValueError("; ".join(parts))
         lineno = 1  # header occupies line 1; data row i sits on line i+1
         for row in reader:
             lineno += 1
@@ -227,7 +315,10 @@ def load_records(csv_path: Path) -> Tuple[List[Record], List[Dict[str, Any]], st
                 continue
             records.append((adcode, name, derive_level(adcode)))
     if not records and not violations:
-        raise ValueError("CSV contains no data rows")
+        raise ValueError(
+            "CSV 只有表头、无数据行 (header-only CSV: no data rows found "
+            "after the header; at least one data row is required)"
+        )
     return records, violations, raw_sha
 
 
@@ -586,19 +677,46 @@ def main(argv: Optional[List[str]] = None) -> int:
         default=DEFAULT_OUT_REL,
         help="output .mbt path (default: %(default)s, repo-root relative)",
     )
+    parser.add_argument(
+        "--no-network-check",
+        action="store_true",
+        help=(
+            "opt-in zero-network assertion: install a process-wide "
+            "sys.addaudithook BEFORE any file I/O that aborts (exit 2) if "
+            "any socket/urllib network audit event fires; a clean run "
+            "proves the generation made zero network calls"
+        ),
+    )
     args = parser.parse_args(argv)
+
+    # Zero-network assertion must be active BEFORE any file I/O (PEP 578).
+    if args.no_network_check:
+        install_network_guard()
 
     csv_path = resolve_path(args.csv, root)
     out_path = resolve_path(args.out, root)
     _REPORT_PATH = root / REPORT_REL
 
     if not csv_path.is_file():
-        fail_run("input CSV not found: %s" % csv_path)
+        # 文件缺失: stderr carries the requested path string VERBATIM plus
+        # the resolved absolute path; report written; product untouched.
+        fail_run(
+            "input CSV not found (文件不存在): %s (requested: %s; resolved: %s)"
+            % (args.csv, args.csv, csv_path),
+            csv_info={"requested": args.csv, "path": str(csv_path)},
+        )
 
     try:
         records, violations, raw_sha = load_records(csv_path)
     except ValueError as exc:
-        fail_run("invalid input CSV: %s" % exc, csv_info={"path": str(csv_path)})
+        fail_run(
+            "invalid input CSV: %s" % exc,
+            csv_info={
+                "requested": args.csv,
+                "path": str(csv_path),
+                "file_name": csv_path.name,
+            },
+        )
 
     upstream_name = csv_path.name
     csv_info = {
@@ -664,23 +782,28 @@ def main(argv: Optional[List[str]] = None) -> int:
         "max_name_len": max(len(n) for n in names),
     }
     product_sha = sha256_hex(text.encode("utf-8"))
-    write_report(
-        {
-            "status": "passed",
-            "generator": "tools/gen_adcodes.py",
-            "csv": csv_info,
-            "product": {
-                "path": str(out_path),
-                "sha256": product_sha,
-                "records": len(records),
-                "level_counts": level_counts,
-            },
-            "summary": summary,
-            "checks": checks,
-            "self_check": "generation success implies self-check passed "
-            "(six checks re-parsed from disk)",
+    report_payload: Dict[str, Any] = {
+        "status": "passed",
+        "generator": "tools/gen_adcodes.py",
+        "csv": csv_info,
+        "product": {
+            "path": str(out_path),
+            "sha256": product_sha,
+            "records": len(records),
+            "level_counts": level_counts,
+        },
+        "summary": summary,
+        "checks": checks,
+        "self_check": "generation success implies self-check passed "
+        "(six checks re-parsed from disk)",
+    }
+    if _NETWORK_GUARD["enabled"]:
+        report_payload["network_check"] = {
+            "requested": True,
+            "result": "passed",
+            "socket_or_network_audit_events": _NETWORK_GUARD["events"],
         }
-    )
+    write_report(report_payload)
 
     print("generated: %s" % out_path)
     print(
@@ -693,6 +816,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         "self-check: 6/6 passed (%s)"
         % " ".join("%s=ok" % cid for cid in CHECK_IDS)
     )
+    if _NETWORK_GUARD["enabled"]:
+        print(
+            "network-check: passed (%d socket/network audit events)"
+            % _NETWORK_GUARD["events"]
+        )
     if created_pkg:
         print("created: %s" % (out_path.parent / "moon.pkg"))
     print("report: %s" % _REPORT_PATH)
@@ -704,6 +832,8 @@ if __name__ == "__main__":
         sys.exit(main())
     except SystemExit:
         raise
+    except NetworkCheckViolation as exc:
+        fail_run("network-check failed (零网络断言未通过): %s" % exc)
     except ValueError as exc:
         fail_run(str(exc))
     except OSError as exc:
