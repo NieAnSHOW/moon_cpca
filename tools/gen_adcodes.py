@@ -849,7 +849,6 @@ def main(argv: Optional[List[str]] = None) -> int:
             "result": "passed",
             "socket_or_network_audit_events": _NETWORK_GUARD["events"],
         }
-    write_report(report_payload)
 
     print("generated: %s" % out_path)
     print(
