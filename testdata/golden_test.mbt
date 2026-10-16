@@ -17,6 +17,20 @@
 // TODO(T-06)：本文件类别白名单收口为全量回归形态（启用集机制/骨架整理）。
 //
 // S1 静态门（P3）：本包测试侧零 fs/网络标识 —— golden 经编译期常量装载。
+//
+// ── T-05 追加：E16 失败诊断报告（引擎 spec §6 E16 / §9.3 E16 行）──────────
+// golden 比对失败时，每条失败用例的四项明细（输入 / 期望 / 实际 / 首个
+// 不一致字段）经 eprintln 打到 stderr（非 0 退出由既有 inspect 断言保证）。
+// 落盘报告 = 验收侧固定命令重定向产生，报告路径在本注释锁定（T-07 记 README）：
+//   python tools/check_deps.py && moon build --target native \
+//     && moon test --target native --no-render > testdata/e16_failure_report.txt
+//   （绝对路径 = <repo>/testdata/e16_failure_report.txt；仅失败诊断场景生成，
+//    全绿时无需落盘；文件由上述命令产生，非测试自身写入。）
+// 取舍证据（控制器裁定 2 方案优先级）：方案 (a) extern "c" libc fopen/fputs/
+// fclose 直调经最小探针实测不可行——fopen 版崩溃 0xc0000005（exit 127），
+// puts 版可链接可运行但 MoonBit String 非 '\0' 结尾、输出截断至首 0x00
+// （"puts-probe-line" 仅打印 "p"）；core 又无 fs/io/path（§4.4 实测证据）。
+// 禁给 moon.mod 加依赖、禁动 engine/**，故落 (b)：stderr 四项 + 重定向落盘。
 
 ///|
 /// 启用类别 = golden 全集 13 类（T-04 步 6；类别名与 golden.mbt 行内 `category`
@@ -81,39 +95,75 @@ fn run_case(c : @testdata.GCase) -> @engine.Location {
 }
 
 ///|
+/// 8 字段的 (字段名, 期望展示, 实际展示) 三元组表（展示形态与 T-04 逐字一致：
+/// String? 走 opt_str，Int 走内插；比对语义不变，无字段豁免）。
+fn field_triples(
+  exp : @testdata.GExpected,
+  got_e : @testdata.GExpected,
+) -> Array[(String, String, String)] {
+  [
+    ("province", opt_str(exp.province), opt_str(got_e.province)),
+    ("city", opt_str(exp.city), opt_str(got_e.city)),
+    ("area", opt_str(exp.area), opt_str(got_e.area)),
+    ("addr", opt_str(exp.addr), opt_str(got_e.addr)),
+    ("adcode", opt_str(exp.adcode), opt_str(got_e.adcode)),
+    ("province_pos", "\{exp.province_pos}", "\{got_e.province_pos}"),
+    ("city_pos", "\{exp.city_pos}", "\{got_e.city_pos}"),
+    ("area_pos", "\{exp.area_pos}", "\{got_e.area_pos}"),
+  ]
+}
+
+///|
+/// 全 8 字段快照（诊断辅助；比对语义仍由 field_triples 逐字段把关）。
+fn snapshot(x : @testdata.GExpected) -> String {
+  "province=" + opt_str(x.province) + " city=" + opt_str(x.city) + " area=" + opt_str(x.area) + " addr=" + opt_str(x.addr) + " adcode=" + opt_str(x.adcode) + " province_pos=\{x.province_pos} city_pos=\{x.city_pos} area_pos=\{x.area_pos}"
+}
+
+///|
 /// 逐字段完整比对（8 字段全查；不一致即记录差异，不做任何弱化/豁免）。
 /// got 经 golden.mbt 的 location_as_expected 桥投影为同构载体后对齐比较。
+/// T-05 追加：同趟扫描捕获「首个不一致字段」，为该用例产出 E16 四项明细
+/// （输入/期望/实际/首个不一致字段；期望/实际同时给出该字段值与全 8 字段
+/// 快照，便于定位）。
 fn diff_case(
   idx : Int,
   c : @testdata.GCase,
   got : @engine.Location,
   fails : Array[String],
+  diags : Array[String],
 ) -> Unit {
   let exp = c.expected
   let got_e = @testdata.location_as_expected(got)
-  if got_e.province != exp.province {
-    fails.push("case[\{idx}] input=\"\{c.input}\" province: expected=\{opt_str(exp.province)} got=\{opt_str(got_e.province)}")
+  let mut first_name = ""
+  let mut first_exp = ""
+  let mut first_got = ""
+  for (name, e, g) in field_triples(exp, got_e) {
+    if e != g {
+      fails.push("case[\{idx}] input=\"\{c.input}\" \{name}: expected=\{e} got=\{g}")
+      if first_name == "" {
+        first_name = name
+        first_exp = e
+        first_got = g
+      }
+    }
   }
-  if got_e.city != exp.city {
-    fails.push("case[\{idx}] input=\"\{c.input}\" city: expected=\{opt_str(exp.city)} got=\{opt_str(got_e.city)}")
+  if first_name != "" {
+    diags.push(
+      "case[\{idx}] 输入=\"\{c.input}\" | 首个不一致字段=\{first_name} | 期望(该字段)=\{first_exp} | 实际(该字段)=\{first_got} | 期望(全8字段)=\{snapshot(exp)} | 实际(全8字段)=\{snapshot(got_e)}",
+    )
   }
-  if got_e.area != exp.area {
-    fails.push("case[\{idx}] input=\"\{c.input}\" area: expected=\{opt_str(exp.area)} got=\{opt_str(got_e.area)}")
-  }
-  if got_e.addr != exp.addr {
-    fails.push("case[\{idx}] input=\"\{c.input}\" addr: expected=\{opt_str(exp.addr)} got=\{opt_str(got_e.addr)}")
-  }
-  if got_e.adcode != exp.adcode {
-    fails.push("case[\{idx}] input=\"\{c.input}\" adcode: expected=\{opt_str(exp.adcode)} got=\{opt_str(got_e.adcode)}")
-  }
-  if got_e.province_pos != exp.province_pos {
-    fails.push("case[\{idx}] input=\"\{c.input}\" province_pos: expected=\{exp.province_pos} got=\{got_e.province_pos}")
-  }
-  if got_e.city_pos != exp.city_pos {
-    fails.push("case[\{idx}] input=\"\{c.input}\" city_pos: expected=\{exp.city_pos} got=\{got_e.city_pos}")
-  }
-  if got_e.area_pos != exp.area_pos {
-    fails.push("case[\{idx}] input=\"\{c.input}\" area_pos: expected=\{exp.area_pos} got=\{got_e.area_pos}")
+}
+
+///|
+/// E16 四项明细 → stderr 报告块（存在失败用例时由测试调用；全绿零输出）。
+fn e16_report(diags : Array[String]) -> Unit {
+  if diags.length() > 0 {
+    let mut msg = "\n==== E16 失败诊断报告（四项=输入/期望/实际/首个不一致字段）====\n"
+    for d in diags {
+      msg = msg + "  - " + d + "\n"
+    }
+    msg = msg + "==== 落盘报告路径（固定命令重定向）: <repo>/testdata/e16_failure_report.txt ===="
+    eprintln(msg)
   }
 }
 
@@ -139,6 +189,7 @@ fn report(fails : Array[String]) -> String {
 /// 与载体头部标识一致。
 test "golden_compare_enabled" {
   let fails : Array[String] = []
+  let diags : Array[String] = []
   let mut checked = 0
   for i, c in @testdata.golden_cases {
     if c.upstream_version != "0.5.5" || c.upstream_version != @testdata.golden_upstream_version {
@@ -148,13 +199,16 @@ test "golden_compare_enabled" {
       continue
     }
     checked = checked + 1
-    diff_case(i, c, run_case(c), fails)
+    diff_case(i, c, run_case(c), fails, diags)
   }
   if checked != @testdata.golden_cases.length() {
     fails.push(
       "启用集未覆盖全部 golden 行（逐条全字段比对要求）: checked=\{checked} total=\{@testdata.golden_cases.length()}",
     )
   }
+  // T-05 E16：失败时四项明细先打 stderr（落盘报告=固定命令重定向，见头注释），
+  // 再由 inspect 断言令测试非 0 退出 —— 断言强度不变。
+  e16_report(diags)
   inspect(report(fails), content="ALL_PASS")
 }
 
@@ -192,6 +246,14 @@ test "golden_same_end_longest_first_probe" {
     }
     if got.adcode != c.expected.adcode {
       fails.push("同 end 枚举序破坏: adcode expected=\{opt_str(c.expected.adcode)} got=\{opt_str(got.adcode)}")
+    }
+    // T-05 E16：本测试失败时同样给出四项明细（复用 diff_case 诊断通路；
+    // 其逐字段 fails 消息由一次性数组承接、不改变本测试自有断言）。
+    if !fails.is_empty() {
+      let probe_fails : Array[String] = []
+      let probe_diags : Array[String] = []
+      diff_case(idx, c, got, probe_fails, probe_diags)
+      e16_report(probe_diags)
     }
   }
   inspect(report(fails), content="ALL_PASS")
