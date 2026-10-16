@@ -7,21 +7,35 @@
 // 比对逻辑为完整实现：启用用例逐条调 @engine.extract 并对 Location 全部
 // 8 字段逐一比对（失败信息带用例号/input/字段名/期望值/实际值）。
 //
-// 本阶段启用集（T-02 完成态可稳定通过的类别，逐类实跑验证后选定）：
-//   ⑥数字字母混排 / ⑦无匹配 / ⑧空输入 —— 三类全部用例的实跑期望均为
-//   empty_record（全 None + pos 全 -1，V-10），与 T-02 引擎无匹配路径一致。
-// TODO(T-04)：省市前缀补全（update_res_by_adcode/adcode_name，
-//   __init__.py:238-248）与 addr 尾串截取（truncate_index 线程，
-//   __init__.py:195/199/224）落地后，①②③④⑤⑨⑩⑪⑫⑬ 中的命中用例才可能
-//   对齐。注：④仅省类实跑期望 addr=""（末位命中后的空尾串）而引擎当前返
-//   None，同样归 T-04（控制器预期「④可稳定通过」经实跑证伪，见报告）。
-// TODO(T-06)：启用集扩至全部 13 类，本文件类别白名单收口为全量回归。
+// 本阶段启用集（T-04 步 6 裁定 = 控制器裁定 1：宿主留在 testdata/，启用集
+// 由 T-03 的 ⑥⑦⑧ 三类扩到【全部 13 类 32 条】，逐条全 8 字段比对，无豁免）：
+// T-04 落地 M-8 前缀补全（update_res_by_adcode/adcode_name，__init__.py:229-248）、
+// M-9 addr 尾串截取（truncate_index 线程，__init__.py:195/199/224）、
+// M-7 umap 分支与 M-10 空记录后，①②③④⑤⑨⑩⑪⑫⑬ 的命中用例通路打开
+// （含④仅省类实跑期望 addr=""（末位命中后的空尾串）：引擎 addr 语义 =
+// 末匹配词之后子串，空即 Some("")，替换输出构造后与 golden 自然对齐）。
+// TODO(T-06)：本文件类别白名单收口为全量回归形态（启用集机制/骨架整理）。
 //
 // S1 静态门（P3）：本包测试侧零 fs/网络标识 —— golden 经编译期常量装载。
 
 ///|
-/// 本阶段启用类别（其余类别逐条 TODO，见文件头）。
-let enabled_categories : Array[String] = ["⑥数字字母混排", "⑦无匹配", "⑧空输入"]
+/// 启用类别 = golden 全集 13 类（T-04 步 6；类别名与 golden.mbt 行内 `category`
+/// 字段逐字一致，未列入者视为未覆盖 —— 保留白名单形态以便逐类核对覆盖度）。
+let enabled_categories : Array[String] = [
+  "①完整省市区",
+  "②仅区县",
+  "③仅市",
+  "④仅省",
+  "⑤简称",
+  "⑥数字字母混排",
+  "⑦无匹配",
+  "⑧空输入",
+  "⑨同名区无上级",
+  "⑩同名区有上级限定",
+  "⑪umap",
+  "⑫addr吞后续文本",
+  "⑬非BMP-pos",
+]
 
 ///|
 /// 类别是否启用（不用 `includes`：本工具链 Array[String] 无该方法，实测
@@ -119,7 +133,8 @@ fn report(fails : Array[String]) -> String {
 }
 
 ///|
-/// golden 比对骨架主通路：逐条（启用类别）→ 全 8 字段比对；
+/// golden 比对骨架主通路：逐条（启用类别 = 全 13 类 32 条，T-04 步 6）→
+/// 全 8 字段比对；
 /// 版本锚定断言（E9 形态）覆盖全部行：upstream_version = "0.5.5" 且
 /// 与载体头部标识一致。
 test "golden_compare_enabled" {
@@ -135,8 +150,10 @@ test "golden_compare_enabled" {
     checked = checked + 1
     diff_case(i, c, run_case(c), fails)
   }
-  if checked < 1 {
-    fails.push("骨架要求至少 1 条启用用例通路可用（brief 步 8）")
+  if checked != @testdata.golden_cases.length() {
+    fails.push(
+      "启用集未覆盖全部 golden 行（逐条全字段比对要求）: checked=\{checked} total=\{@testdata.golden_cases.length()}",
+    )
   }
   inspect(report(fails), content="ALL_PASS")
 }
@@ -151,7 +168,8 @@ test "golden_compare_enabled" {
 ///   transform('城东区某某路', pos_sensitive=True) → 区=城东区 adcode=630102
 /// golden 行（A 级）期望同名同码。本探针断言 T-02 可观察面 = 选中候选
 /// （area/adcode）——若引擎枚举序假设错（先出 东区），此处即红；
-/// 完整 8 字段比对随类别②在 T-06 启用（省市补全与 addr 归 T-04），
+/// 完整 8 字段比对自 T-04 步 6 起随类别②进入全量启用集（本测试保留为
+/// 枚举序专项回归锁），
 /// 非弱化：启用集比对用上测试的完整 diff_case，无字段豁免。
 test "golden_same_end_longest_first_probe" {
   let fails : Array[String] = []

@@ -18,13 +18,14 @@ priv struct Cand {
 
 ///|
 /// 单个匹配区间（上游 matcher.MatchInfo，matcher.py:5-11）。
-/// start_index 为码点下标（左闭右闭区间口径与上游一致）。
-/// 上游还携带 end_index，仅供 addr 尾串截取消费（__init__.py:195/199
-/// truncate_index 线程），T-02 不产出 addr，故暂不携带；T-04 实现 addr 时
-/// 以 start_index + char_len(origin_value) - 1 / 或恢复字段承接（行为不变）。
+/// start_index / end_index 为码点下标（左闭右闭区间口径与上游一致，
+/// matcher.py:74-76 的 end_index 与 start_index = end_index - len + 1）。
+/// end_index 由 addr 尾串截取消费（T-04，__init__.py:195/199/224 的
+/// truncate_index 线程：res[_ADDR] = sentence[truncate_index + 1:]）。
 priv struct MatchInfo {
   cands : Array[Cand]
   start_index : Int
+  end_index : Int
   origin_value : String
 }
 
@@ -202,7 +203,12 @@ fn iter_matches(
             None => false
           }
           if !skip {
-            let cur : MatchInfo = { cands, start_index: start, origin_value: key }
+            let cur : MatchInfo = {
+              cands,
+              start_index: start,
+              end_index: end,
+              origin_value: key,
+            }
             match pending {
               Some(pm) => {
                 let same_start = match prev_start {

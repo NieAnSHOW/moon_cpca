@@ -3,7 +3,9 @@
 // （`inspect(cond, content="true")`，规避 Option Show 的 deprecated 警告）；
 // 引用形态用 `@engine.` 限定（规避 0025 警告）。
 // T-02 转绿清单：探针①（数据产物消费）、探针②（pos 码点口径）、
-// L2 同名区消歧链路对、L1 部分状态（area/adcode 先绿，省市补全归 T-04）。
+// L2 同名区消歧链路对。
+// T-04 走查门（S3）扩充：L1 补全全链、L3 umap（含回落支路）、L4 无匹配/空输入
+// 空记录，另加收尾路径（仅市命中 addr=""）专项。
 
 ///|
 test "a9_probe_shanghai" {
@@ -36,11 +38,87 @@ test "l2_fujian_gulou_belong_disambiguation" {
 }
 
 ///|
-test "l1_xuhui_partial_state_t02" {
-  // L1 走查（S3）T-02 实际状态：无上级时「徐汇区」取候选首元素（M-6）→
-  // area/adcode 先绿；province/city 需 T-04 的 update_res_by_adcode 补全，
-  // addr 需 T-04 尾串截取 —— 本探针只锁当前已确定部分，T-04 扩充。
-  let res = @engine.extract("徐汇区虹漕路461号58号楼5楼")
+test "l1_xuhui_full_chain_t04" {
+  // L1 走查（S3，V-07 全链）：无上级时「徐汇区」取候选首元素（M-6）→
+  // 310104 县级命中即产出；省市名由 update_res_by_adcode 按 adcode 前缀反查
+  // （M-8）：adcode_name("31")=上海市、adcode_name("3101")=市辖区（V-08 直辖市
+  // 市位形态，非「上海市」重复）；addr = 末匹配词 end 之后子串（M-9，V-09 口径）。
+  // 与 golden 类别② 同输入行（testdata/golden.mbt ②「徐汇区虹漕路461号58号楼5楼」）
+  // 期望逐字段同形。
+  let res = @engine.extract("徐汇区虹漕路461号58号楼5楼", pos_sensitive=true)
+  inspect(res.province is Some("上海市"), content="true")
+  inspect(res.city is Some("市辖区"), content="true")
   inspect(res.area is Some("徐汇区"), content="true")
+  inspect(res.addr is Some("虹漕路461号58号楼5楼"), content="true")
   inspect(res.adcode is Some("310104"), content="true")
+  inspect(res.province_pos, content="-1")
+  inspect(res.city_pos, content="-1")
+  inspect(res.area_pos, content="0")
+}
+
+///|
+test "l3_umap_selects_beijing_chaoyang" {
+  // L3 走查（S3，V-06 / M-7）：同名区「朝阳区」候选首元素为长春 220104（V-04/V-05），
+  // 传 umap {"朝阳区": "110105"}（key=匹配原文、value=6 位 adcode，
+  // 上游 transform 文档 __init__.py:97）后按 adcode 选候选 → 北京 110105；
+  // 省市补全为 北京市/市辖区（V-08）。
+  let umap : Map[String, String] = Map([("朝阳区", "110105")])
+  let res = @engine.extract("朝阳区汉庭酒店大山子店", pos_sensitive=true, umap=umap)
+  inspect(res.province is Some("北京市"), content="true")
+  inspect(res.city is Some("市辖区"), content="true")
+  inspect(res.area is Some("朝阳区"), content="true")
+  inspect(res.addr is Some("汉庭酒店大山子店"), content="true")
+  inspect(res.adcode is Some("110105"), content="true")
+  inspect(res.area_pos, content="0")
+}
+
+///|
+test "l3b_umap_unknown_key_and_absent_fall_back_to_first" {
+  // M-7 回落支路（matcher.py:16-18）：umap 里查不到匹配原文 → 候选首元素；
+  // 与不传 umap（= 上游默认空 dict，__init__.py:90）行为一致（V-05）。
+  let res_unknown =
+    @engine.extract("朝阳区汉庭酒店大山子店", pos_sensitive=true, umap=Map([("不存在区", "110105")]))
+  let res_empty =
+    @engine.extract("朝阳区汉庭酒店大山子店", pos_sensitive=true, umap=Map([]))
+  let res_absent = @engine.extract("朝阳区汉庭酒店大山子店", pos_sensitive=true)
+  inspect(res_unknown.adcode is Some("220104"), content="true")
+  inspect(res_empty.adcode is Some("220104"), content="true")
+  inspect(res_absent.adcode is Some("220104"), content="true")
+  inspect(
+    res_unknown.province is Some("吉林省") && res_unknown.city is Some("长春市"),
+    content="true",
+  )
+}
+
+///|
+test "l4_no_match_empty_record" {
+  // L4 走查（S3，M-10 / V-10）：无匹配输入 → 全 None + pos 全 -1；
+  // 空输入同形（__init__.py:176-178 空记录分支）。adcode 无命中 = None
+  // （6 位口径只在命中时产出；12→6 截位锚 __init__.py:45-46 在 Cand 构造期）。
+  for t in ["32323", "哈哈哈不存在", ""] {
+    let res = @engine.extract(t, pos_sensitive=true)
+    inspect(res.province is None, content="true")
+    inspect(res.city is None, content="true")
+    inspect(res.area is None, content="true")
+    inspect(res.addr is None, content="true")
+    inspect(res.adcode is None, content="true")
+    inspect(res.province_pos, content="-1")
+    inspect(res.city_pos, content="-1")
+    inspect(res.area_pos, content="-1")
+  }
+}
+
+///|
+test "l5_city_only_record_addr_empty_string" {
+  // 非县级命中收尾路径（__init__.py:223-225）：仅市命中 → 省按前缀补全、
+  // 区 None、addr = 末匹配词之后的空尾串（Some("")，③ 类 golden A 级期望）。
+  let res = @engine.extract("成都市", pos_sensitive=true)
+  inspect(res.province is Some("四川省"), content="true")
+  inspect(res.city is Some("成都市"), content="true")
+  inspect(res.area is None, content="true")
+  inspect(res.addr is Some(""), content="true")
+  inspect(res.adcode is Some("510100"), content="true")
+  inspect(res.province_pos, content="-1")
+  inspect(res.city_pos, content="0")
+  inspect(res.area_pos, content="-1")
 }
