@@ -45,7 +45,10 @@ test "l1_xuhui_full_chain_t04" {
   // 市位形态，非「上海市」重复）；addr = 末匹配词 end 之后子串（M-9，V-09 口径）。
   // 与 golden 类别② 同输入行（testdata/golden.mbt ②「徐汇区虹漕路461号58号楼5楼」）
   // 期望逐字段同形。
-  let res = @engine.extract("徐汇区虹漕路461号58号楼5楼", pos_sensitive=true)
+  let res = @engine.extract(
+    "徐汇区虹漕路461号58号楼5楼",
+    pos_sensitive=true,
+  )
   inspect(res.province is Some("上海市"), content="true")
   inspect(res.city is Some("市辖区"), content="true")
   inspect(res.area is Some("徐汇区"), content="true")
@@ -63,7 +66,11 @@ test "l3_umap_selects_beijing_chaoyang" {
   // 上游 transform 文档 __init__.py:97）后按 adcode 选候选 → 北京 110105；
   // 省市补全为 北京市/市辖区（V-08）。
   let umap : Map[String, String] = Map([("朝阳区", "110105")])
-  let res = @engine.extract("朝阳区汉庭酒店大山子店", pos_sensitive=true, umap=umap)
+  let res = @engine.extract(
+    "朝阳区汉庭酒店大山子店",
+    pos_sensitive=true,
+    umap~,
+  )
   inspect(res.province is Some("北京市"), content="true")
   inspect(res.city is Some("市辖区"), content="true")
   inspect(res.area is Some("朝阳区"), content="true")
@@ -76,16 +83,26 @@ test "l3_umap_selects_beijing_chaoyang" {
 test "l3b_umap_unknown_key_and_absent_fall_back_to_first" {
   // M-7 回落支路（matcher.py:16-18）：umap 里查不到匹配原文 → 候选首元素；
   // 与不传 umap（= 上游默认空 dict，__init__.py:90）行为一致（V-05）。
-  let res_unknown =
-    @engine.extract("朝阳区汉庭酒店大山子店", pos_sensitive=true, umap=Map([("不存在区", "110105")]))
-  let res_empty =
-    @engine.extract("朝阳区汉庭酒店大山子店", pos_sensitive=true, umap=Map([]))
-  let res_absent = @engine.extract("朝阳区汉庭酒店大山子店", pos_sensitive=true)
+  let res_unknown = @engine.extract(
+    "朝阳区汉庭酒店大山子店",
+    pos_sensitive=true,
+    umap=Map([("不存在区", "110105")]),
+  )
+  let res_empty = @engine.extract(
+    "朝阳区汉庭酒店大山子店",
+    pos_sensitive=true,
+    umap=Map([]),
+  )
+  let res_absent = @engine.extract(
+    "朝阳区汉庭酒店大山子店",
+    pos_sensitive=true,
+  )
   inspect(res_unknown.adcode is Some("220104"), content="true")
   inspect(res_empty.adcode is Some("220104"), content="true")
   inspect(res_absent.adcode is Some("220104"), content="true")
   inspect(
-    res_unknown.province is Some("吉林省") && res_unknown.city is Some("长春市"),
+    res_unknown.province is Some("吉林省") &&
+    res_unknown.city is Some("长春市"),
     content="true",
   )
 }
