@@ -17,7 +17,7 @@ moon_cpca 是一个 MoonBit 编译期常量数据包：内置中国行政区划�
 
 消费方在自己的包配置 `moon.pkg` 中声明引擎包（包别名为 `@engine`）：
 
-```moonbit
+```text
 import {
   "moon_cpca/engine" @engine,
 }
