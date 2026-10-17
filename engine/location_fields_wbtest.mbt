@@ -10,6 +10,7 @@
 //   addr 吞后续文本         → location_addr_swallows_tail              → V-09（吉林省朝阳区，而我家… → 「，而我家在…」）
 //   addr 空尾串 = Some("")   → location_addr_empty_tail_some           → golden ③④ 类（成都市 / 北京市 实跑 = ""）
 //   非 BMP pos 口径         → location_pos_codepoint_index_non_bmp      → V-11/V-12（上海😀市徐汇区 area_pos=4）
+//   pos_sensitive 缺省/false → location_pos_default_minus_one              → spec §3.5 row 14（上游 pos_sensitive 默认 False，无 pos 列）
 // 上游测试域映射（spec §4.5）：tests/test_structures.py（Pca 字段/NULL 性/pos 结构）
 // → 本文件 Location 字段/NULL 性/pos 结构用例；tests/test_cpca.py（_assert_line
 // 的 8 值断言形态）→ 同形态逐字段断言。
@@ -325,4 +326,41 @@ test "location_addr_swallows_tail_and_empty_string" {
   inspect(opt_str(extract("江苏省", pos_sensitive=true).addr), content="Some(\"\")")
   // 无匹配时 addr = None（V-10）—— 与 Some("") 语义区分开。
   inspect(opt_str(extract("32323", pos_sensitive=true).addr), content="None")
+}
+///|
+test "location_pos_default_minus_one" {
+  // pos_sensitive 契约（spec §3.5 第 14 行；上游 cpca/__init__.py:90 默认
+  // `pos_sensitive=False`）：pos_sensitive=false（含缺省）路径下输出无 pos
+  // 概念列，MoonBit 侧 pos 三槽恒为 -1（不填写位置）。
+  // 两路必须各自走到：不传 pos_sensitive 与显式 pos_sensitive=false。
+  let d1 = extract("徐汇区虹漕路461号58号楼5楼")
+  inspect(d1.province_pos, content="-1")
+  inspect(d1.city_pos, content="-1")
+  inspect(d1.area_pos, content="-1")
+  let d2 = extract("上海市浦东新区东明路街道三林路15号")
+  inspect(d2.province_pos, content="-1")
+  inspect(d2.city_pos, content="-1")
+  inspect(d2.area_pos, content="-1")
+  let e1 = extract("徐汇区虹漕路461号58号楼5楼", pos_sensitive=false)
+  inspect(e1.province_pos, content="-1")
+  inspect(e1.city_pos, content="-1")
+  inspect(e1.area_pos, content="-1")
+  let e2 = extract("上海市浦东新区东明路街道三林路15号", pos_sensitive=false)
+  inspect(e2.province_pos, content="-1")
+  inspect(e2.city_pos, content="-1")
+  inspect(e2.area_pos, content="-1")
+  // 显式 false 与缺省两路输出逐字段一致（仅锁 pos 三槽）。
+  inspect(
+    dump(e1) == dump(d1),
+    content="true",
+  )
+  inspect(
+    dump(e2) == dump(d2),
+    content="true",
+  )
+  // 负向对照：显式 pos_sensitive=true 同一输入给出真实位置（此处即红，
+  // 防止「恒 -1」在 pos_sensitive=true 路径上被误判为通过）。
+  let t = extract("徐汇区虹漕路461号58号楼5楼", pos_sensitive=true)
+  inspect(t.area_pos, content="0")
+  inspect(t.city_pos, content="-1")
 }
