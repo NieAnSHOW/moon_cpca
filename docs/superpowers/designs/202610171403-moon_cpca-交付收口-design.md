@@ -25,7 +25,7 @@
 - **本机工作树 ≠ 可交付仓库**：`chinese_province_city_area_mapper/` 未入库，`git ls-files` 计数为 0；干净 clone 无法运行数据与 golden 生成（证据：`.superpowers/gap-audit/evidence-parity.md:35`）。
 - **本机通过 ≠ 发布可用**：`moon publish --dry-run` 在 manifest 校验阶段退出 255；模块名缺作者前缀，且缺 readme/repository（证据：`.superpowers/gap-audit/evidence-packaging.md:14`）。
 - **native 通过 ≠ 跨目标可验证**：CI 只覆盖 native；wasm-gc 本机测试启动报 `0xc0000139`，js 的 `node` 垫片指向不存在的路径（证据：`.superpowers/gap-audit/evidence-packaging.md:19-21`、`.github/workflows/ci.yml:23-27`）。
-- **32 条 golden ≠ 上游用例全覆盖**：上游 11 条单条输入中 5 条未覆盖、2 条部分覆盖；`test_umap` 第 2 条未覆盖（证据：`.superpowers/gap-audit/evidence-parity.md:49-75`）。
+- **32 条 golden（T-09 后为 40 条）≠ 上游用例全覆盖**：上游 11 条单条输入中 5 条未覆盖、2 条部分覆盖；`test_umap` 第 2 条未覆盖（证据：`.superpowers/gap-audit/evidence-parity.md:49-75`）。
 - **README 示例 ≠ 可运行示例**：仓库无 example 包；E16 诊断命令只重定向 stdout，stderr 四项不会进入报告文件（证据：`README.md:82`、`.superpowers/gap-audit/evidence-parity.md:174`）。
 
 **校准结论**：本单元是「交付面收口」，不是引擎功能开发。设计必须以「干净 clone 可观察、注册表可观察、CI 可观察、逐条覆盖可观察」为第一优先级。
@@ -163,7 +163,7 @@
 | D-08 | **wasm-gc 执行强制**：CI 的 wasm-gc job 必须产生用例计数；runner 缺 loader 时安装 wasm runtime 或用容器，失败即阻断发布 | 只构建不执行；标记 unresolved；跳过该 job | G-03、FR-08；PRD D3 | runner 安装时间；机制未在本机验证 | runner 无法提供任何可用 loader | CI 日志有 `Total tests` 或等价计数；失败时整体红；无 unresolved |
 | D-09 | **js 非阻断**：CI 安装真实 Node；没有可用运行器时 job 记录 `unresolved + 具名原因`，README 同步；只有 js 允许 unresolved | 把 js 设为 required；静默跳过；写 green 无运行记录 | FR-19；PRD D3 | 一个 non-blocking job；状态维护成本 | Node 在 runner 可用 | js job 状态可见；README 行非空二选一 |
 | D-10 | **Python dev 依赖声明**：仓库根 `requirements-dev.txt` 声明兼容 Python 3.12 的 `pandas==2.3.1`、`pyahocorasick==2.3.1`、`setuptools`（`pkg_resources` 兼容；`cpca/__init__.py:68` 需要）；README 给安装命令；不复用上游 2020 年 pin | 直接复用上游 `requirements.txt`；不声明依赖；漏 setuptools | FR-03；PRD 10.5 | 一个新文件；安装时间 | 当前 Python 版本与依赖不兼容 | `python -c "import pandas, ahocorasick, pkg_resources"` 0；`gen_golden.py` 0 |
-| D-11 | **README/example/CHANGELOG**：`example/` 为 `options("is-main": true)` 包，只 import 改名后的 engine；README 五段；CHANGELOG 0.1.0；example 入包，体积按 D-06 | 只留 README 代码块；把 example 放进 testdata；不写 CHANGELOG | FR-15、FR-16、FR-18 | example 入包；文档维护成本 | 发布包体积或入口形态变化 | `moon run --target native example` 0；stdout 与 README 逐行一致；五段可检索 |
+| D-11 | **README/example/CHANGELOG**：`example/` 为 main 包（T-10 执行期修正：`pkgtype(kind: "executable")`，不是 `options("is-main": true)` —— 后者被 moon `0.1.20261012` formatter 改写），只 import 改名后的 engine；README 五段；CHANGELOG 0.1.0；example 入包，体积按 D-06 | 只留 README 代码块；把 example 放进 testdata；不写 CHANGELOG | FR-15、FR-16、FR-18 | example 入包；文档维护成本 | 发布包体积或入口形态变化 | `moon run --target native example` 0；stdout 与 README 逐行一致；五段可检索 |
 | D-12 | **E16 命令修正**：README 改为 `2>`（仅 stderr；不得用 `2>&1`），不改测试代码；成功时报告文件为空 | 让测试直接写文件；只改文案不验证；用 `2>&1` 捕获 stdout | FR-17 | 一行命令 | 测试输出通道变化 | 构造不一致后报告文件存在且四项可检索；成功时文件为空 |
 
 ---
