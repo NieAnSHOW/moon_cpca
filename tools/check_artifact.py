@@ -55,12 +55,14 @@ CSV_REL = (
 LEVELS = ("Province", "City", "Area")
 
 # Record lines inside the emitted array literal -- exact shape produced by
-# tools/gen_adcodes.py. The name group keeps escape sequences intact
-# (\" \\ \n \r \t \u{XX}); real data has none, but parsing is defensive.
+# tools/gen_adcodes.py, plus the equivalent formatted shape that carries an
+# optional trailing comma after `level`. The name group keeps escape
+# sequences intact (\" \\ \n \r \t \u{XX}); real data has none, but parsing
+# is defensive.
 ENTRY_RE = re.compile(
     r'^  \{ adcode: "(?P<adcode>[0-9]{12})", '
     r'name: "(?P<name>(?:[^"\\]|\\.)*)", '
-    r"level: (?P<level>Province|City|Area) \},$"
+    r"level: (?P<level>Province|City|Area),? \},$"
 )
 ARRAY_OPEN_RE = re.compile(r"^pub let adcodes : Array\[Rec\] = \[$")
 ARRAY_CLOSE_RE = re.compile(r"^\]$")
