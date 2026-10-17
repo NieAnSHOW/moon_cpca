@@ -5,12 +5,23 @@ on:
   pull_request:
 
 jobs:
-  build-test:
-    name: build and test (native)
+  native:
+    name: native
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dev dependencies
+        run: python -m pip install -r requirements-dev.txt
 
       - name: Install MoonBit
         run: |
@@ -20,8 +31,182 @@ jobs:
       - name: Show MoonBit version
         run: moon version
 
-      - name: Build (native)
-        run: moon build --target native
+      - name: Check (native)
+        run: moon check --target native
 
       - name: Test (native)
-        run: moon test --target native
+        run: |
+          set -o pipefail
+          mkdir -p _build
+          moon test --target native --no-render 2>&1 | tee _build/native-test.log
+          grep -q "Total tests" _build/native-test.log
+
+  wasm-gc:
+    name: wasm-gc
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dev dependencies
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Install MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: Show MoonBit version
+        run: moon version
+
+      - name: Build (wasm-gc)
+        run: moon build --target wasm-gc
+
+      # Required job: no continue-on-error. The bundled `moonrun` (installed with
+      # the MoonBit CLI into $HOME/.moon/bin) is the wasm-gc loader on the runner.
+      # A missing `Total tests` line fails the job, so a loader/execution gap can
+      # never be silently downgraded to unresolved.
+      - name: Test (wasm-gc)
+        run: |
+          set -o pipefail
+          mkdir -p _build
+          moon test --target wasm-gc --no-render 2>&1 | tee _build/wasm-test.log
+          grep -q "Total tests" _build/wasm-test.log
+
+  quality-gates:
+    name: quality-gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dev dependencies
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Install MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: Show MoonBit version
+        run: moon version
+
+      - name: "Gate 1: moon fmt --check"
+        run: moon fmt --check
+
+      - name: "Gate 2: moon check --target native"
+        run: moon check --target native
+
+      - name: "Gate 3: check_golden"
+        run: python tools/check_golden.py
+
+      - name: "Gate 4: check_deps"
+        run: python tools/check_deps.py
+
+      - name: "Gate 5: check_artifact"
+        run: python tools/check_artifact.py --records --fields --levels --order --dup
+
+      - name: "Gate 6: test_gen_adcodes"
+        run: python tools/test_gen_adcodes.py
+
+      - name: "Gate 7: regen + clean tree"
+        run: |
+          python tools/regen.py
+          git diff --exit-code
+
+      # E16 fixed command: stderr only (`2>`), never `2>&1`, so the report stays
+      # empty on success and carries the four diagnostics on golden mismatch.
+      - name: "E16: check_deps + build + test (stderr report)"
+        run: python tools/check_deps.py && moon build --target native && moon test --target native --no-render 2> testdata/e16_failure_report.txt
+
+      - name: Upload quality artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-artifacts
+          path: |
+            _build/regen.log
+            testdata/e16_failure_report.txt
+          retention-days: 7
+          if-no-files-found: warn
+
+  js:
+    name: js
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Non-blocking target: the run must not fail on a js gap, but the status is
+    # always recorded explicitly as `green` or `unresolved: <reason>`.
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dev dependencies
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: Show MoonBit version
+        run: moon version
+
+      - name: Test (js)
+        id: js_test
+        run: |
+          set -o pipefail
+          mkdir -p _build
+          moon test --target js --no-render 2>&1 | tee _build/js_test.log
+
+      - name: Write js status
+        if: always()
+        run: |
+          mkdir -p _build
+          if [ "${{ steps.js_test.outcome }}" = "success" ]; then
+            printf 'green\n' > _build/js_status.txt
+          else
+            reason="$(grep -m1 -E '^Error|^Caused by|error:' _build/js_test.log 2>/dev/null | sed 's/\r$//; s/^[[:space:]]*//' || true)"
+            if [ -z "$reason" ]; then
+              reason="moon test --target js --no-render exited non-zero (see js job log)"
+            fi
+            printf 'unresolved: %s\n' "$reason" > _build/js_status.txt
+          fi
+          cat _build/js_status.txt
+
+      - name: Upload js status
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: js-status
+          path: _build/js_status.txt
+          retention-days: 7
+          if-no-files-found: warn
