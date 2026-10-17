@@ -1,6 +1,6 @@
 // 上游文件名: adcodes.csv
 // 记录数: 3511
-// CSV 内容 sha256: 66948fa1519ba053f22b8c2d05c897c9b19c44cdc3044e464b52f0143ff418fe
+// CSV 内容 sha256: de2acdf621afb9cef1232389166f420ae6da9cfab13172b39b0f2c50f8e48307
 
 ///|
 pub enum Level {

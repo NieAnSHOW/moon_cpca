@@ -5,3 +5,13 @@
 # and as a regenerated file. Deliberately scoped to the generated artifact
 # only; no repo-wide EOL rewrite.
 data/adcodes.mbt text eol=lf
+
+# The three generated/consumed artifacts below carry a byte-identity
+# contract: data/adcodes.mbt's header records the sha256 of the CSV bytes,
+# and regen.py step 7/8 require a clean worktree after regeneration.
+# Without these rules a fresh clone on a machine with core.autocrlf=true
+# checks the files out as CRLF, so the regenerated LF bytes look modified.
+# Scope stays artifact-only; no repo-wide EOL rewrite.
+chinese_province_city_area_mapper/cpca/resources/adcodes.csv text eol=lf
+testdata/golden.jsonl text eol=lf
+testdata/golden.mbt text eol=lf
