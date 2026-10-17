@@ -54,15 +54,19 @@ CSV_REL = (
 
 LEVELS = ("Province", "City", "Area")
 
-# Record lines inside the emitted array literal -- exact shape produced by
-# tools/gen_adcodes.py, plus the equivalent formatted shape that carries an
-# optional trailing comma after `level`. The name group keeps escape
-# sequences intact (\" \\ \n \r \t \u{XX}); real data has none, but parsing
-# is defensive.
+# Record grammar inside the emitted array literal. Accepts the raw shape
+# produced by tools/gen_adcodes.py, the single-line formatted shape with a
+# trailing comma after `level`, and the wrapped multi-line block emitted by
+# `moon fmt` for long names. Whitespace (including newlines) between block
+# tokens is insignificant; field order, field names and the trailing comma
+# after the closing brace are not. The name group keeps escape sequences
+# intact (\" \\ \n \r \t \u{XX}); real data has none, but parsing is
+# defensive.
 ENTRY_RE = re.compile(
-    r'^  \{ adcode: "(?P<adcode>[0-9]{12})", '
-    r'name: "(?P<name>(?:[^"\\]|\\.)*)", '
-    r"level: (?P<level>Province|City|Area),? \},$"
+    r'\{\s*adcode:\s*"(?P<adcode>[0-9]{12})"\s*,\s*'
+    r'name:\s*"(?P<name>(?:[^"\\]|\\.)*)"\s*,\s*'
+    r"level:\s*(?P<level>Province|City|Area)\s*,?\s*\}\s*,",
+    re.S,
 )
 ARRAY_OPEN_RE = re.compile(r"^pub let adcodes : Array\[Rec\] = \[$")
 ARRAY_CLOSE_RE = re.compile(r"^\]$")
@@ -111,8 +115,10 @@ def unescape_moonbit_string(s: str) -> str:
 def parse_product(text: str) -> list:
     """Structurally parse the generated .mbt into (adcode, name, level).
 
-    Raises ProductParseError when the array envelope is missing/malformed
-    or any line inside the array body does not have the exact record shape.
+    Records may be single-line (raw or formatted) or wrapped across lines by
+    `moon fmt`; whitespace between block tokens is insignificant. Raises
+    ProductParseError when the array envelope is missing/malformed or any
+    non-whitespace content in the array body is not a valid record.
     """
     lines = text.split("\n")
     try:
@@ -123,20 +129,36 @@ def parse_product(text: str) -> list:
         raise ProductParseError(
             "未找到数组声明行 'pub let adcodes : Array[Rec] = ['"
         )
+    try:
+        close_idx = next(
+            i for i in range(open_idx + 1, len(lines))
+            if ARRAY_CLOSE_RE.match(lines[i])
+        )
+    except StopIteration:
+        raise ProductParseError("未找到数组结束行 ']'")
+
+    body_lines = lines[open_idx + 1:close_idx]
+    body = "\n".join(body_lines)  # body_lines[0] is 1-based line open_idx+2
+
+    def parse_error(offset: int) -> "ProductParseError":
+        local = body.count("\n", 0, offset)
+        return ProductParseError(
+            "第 %d 行不是合法记录行: %r"
+            % (open_idx + 2 + local, body_lines[local])
+        )
+
     entries = []
-    seen_close = False
-    for no in range(open_idx + 1, len(lines)):
-        line = lines[no]
-        if ARRAY_CLOSE_RE.match(line):
-            seen_close = True
+    pos = 0
+    while True:
+        m = ENTRY_RE.search(body, pos)
+        if m is None:
+            rest = body[pos:]
+            if rest.strip():
+                raise parse_error(pos + len(rest) - len(rest.lstrip()))
             break
-        if not line.strip():
-            continue
-        m = ENTRY_RE.match(line)
-        if not m:
-            raise ProductParseError(
-                "第 %d 行不是合法记录行: %r" % (no + 1, line)
-            )
+        gap = body[pos:m.start()]
+        if gap.strip():
+            raise parse_error(pos + len(gap) - len(gap.lstrip()))
         entries.append(
             (
                 m.group("adcode"),
@@ -144,8 +166,7 @@ def parse_product(text: str) -> list:
                 m.group("level"),
             )
         )
-    if not seen_close:
-        raise ProductParseError("未找到数组结束行 ']'")
+        pos = m.end()
     return entries
 
 
