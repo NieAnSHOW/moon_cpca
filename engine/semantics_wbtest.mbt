@@ -10,6 +10,7 @@
 //   M-6 无上级取首元素  → m6_first_candidate_when_no_parent         → V-04/V-05（matcher.py:19-20）
 //   M-7 umap 指定       → m7_umap_selects_candidate_by_adcode       → V-06（matcher.py:16-18）
 //   M-7 umap 回落首元素 → m7_umap_unknown_falls_back_to_first       → V-06 同输入回落支路（matcher.py:16-18）
+//   M-7 umap value 边界 → m7_umap_value_width_and_empty_boundary      → T-04 rubric 缺口锁（matcher.py:16-18 + __init__.py:45-46 + 上游实跑）
 // 白盒形态（*_wbtest.mbt）：与 engine 包同作用域，可访问 priv 的 Cand/MatchInfo/
 // matcher/iter_matches/get_match_addr/belong_to；断言只作用于可观察行为
 // （枚举序、候选序列、选中候选、端到端 extract 输出），零 mock、零文件/网络/环境变量。
@@ -309,4 +310,49 @@ test "m7_umap_unknown_falls_back_to_first" {
   inspect(res_other_key.adcode is Some("220104"), content="true")
   inspect(res_absent.adcode is Some("220104"), content="true")
   inspect(res_unknown.province is Some("吉林省"), content="true")
+}
+
+///|
+test "m7_umap_value_width_and_empty_boundary" {
+  // M-7 value 边界（T-04 rubric 缺口回归锁；上游锚点 matcher.py:16-18
+  // `res if res else self.attr_infos[0]` + __init__.py:45-46
+  // AddrInfo 构造期 `self.adcode = adcode[:6]`）：
+  // 候选 adcode 恒为 6 位（构造期截断），而 umap value 由调用方原样传入、
+  // 与候选做等值比较（__init__.py:189 → matcher.py:17）——故 value 位宽
+  // 不是 6 位（如误传 12 位全码）或为空串时，等值比较必然不命中 → 回落
+  // 候选首元素，与无 umap 行为一致（V-05 口径）。
+  // 上游实跑取证（仓库根；cd chinese_province_city_area_mapper；
+  // `python -W ignore -c "from cpca import transform; ..."`，
+  // 2026-10-17，cpca 0.5.5）：
+  //   umap={'朝阳区': '110105000000'}（12 位）
+  //     → {'省': '吉林省', '市': '长春市', '区': '朝阳区',
+  //        '地址': '汉庭酒店大山子店', 'adcode': '220104'}
+  //   umap={'朝阳区': ''}（空串）
+  //     → {'省': '吉林省', '市': '长春市', '区': '朝阳区',
+  //        '地址': '汉庭酒店大山子店', 'adcode': '220104'}
+  // 两条均回落首元素 220104（吉林省/长春市），非 110105。
+  let cy = cands_of("朝阳区")
+  // 白盒：first_adcode 与 6 位候选 adcode 等值比较（M-7 选择支路语义）。
+  // 12 位全码 / 空串均不命中 → 回落 cands[0] = 220104。
+  inspect(cand_code(get_match_addr(cy, None, Some("110105000000"))), content="220104")
+  inspect(cand_code(get_match_addr(cy, None, Some(""))), content="220104")
+  // 公开入口：12 位 value → 回落首元素（不按 110105 选）。
+  let res_wide =
+    extract("朝阳区汉庭酒店大山子店", pos_sensitive=true, umap=Map([("朝阳区", "110105000000")]))
+  inspect(res_wide.adcode is Some("220104"), content="true")
+  inspect(res_wide.province is Some("吉林省"), content="true")
+  inspect(res_wide.city is Some("长春市"), content="true")
+  inspect(res_wide.area is Some("朝阳区"), content="true")
+  inspect(res_wide.addr is Some("汉庭酒店大山子店"), content="true")
+  // 公开入口：空串 value → 同样回落首元素。
+  let res_empty =
+    extract("朝阳区汉庭酒店大山子店", pos_sensitive=true, umap=Map([("朝阳区", "")]))
+  inspect(res_empty.adcode is Some("220104"), content="true")
+  inspect(res_empty.province is Some("吉林省"), content="true")
+  inspect(res_empty.city is Some("长春市"), content="true")
+  // 反证口径：6 位 value 命中选择支路 → 110105（证明回落不是"永远取首元素"，
+  // 等值比较在位宽正确时确实生效；与 m7_umap_selects_candidate_by_adcode 同锁）。
+  let res_exact =
+    extract("朝阳区汉庭酒店大山子店", pos_sensitive=true, umap=Map([("朝阳区", "110105")]))
+  inspect(res_exact.adcode is Some("110105"), content="true")
 }
