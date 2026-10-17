@@ -303,8 +303,9 @@ pub fn location_as_expected(loc : @engine.Location) -> GExpected {{
 pub let golden_upstream_version : String = {ver_lit}
 
 ///|
-/// golden 用例编译期常量数组（≥30 条代表集，13 类覆盖；T-03 步 7 裁定 (b)：
-/// 全量 18367 条慢速集延后，登记跟踪，见计划文件「T-03 裁定记录」）。
+/// golden 用例编译期常量数组（40 条代表集，13 类覆盖；T-09 扩类后 T-10 订正
+/// 计数口径；T-03 步 7 裁定 (b)：全量 18367 条慢速集延后，登记跟踪，见计划
+/// 文件「T-03 裁定记录」）。
 pub let golden_cases : Array[GCase] = [
 """
 

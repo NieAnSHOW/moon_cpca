@@ -8,7 +8,7 @@
 // 8 字段逐一比对（失败信息带用例号/input/字段名/期望值/实际值）。
 //
 // 本阶段启用集（T-04 步 6 裁定 = 控制器裁定 1：宿主留在 testdata/，启用集
-// 由 T-03 的 ⑥⑦⑧ 三类扩到【全部 13 类 32 条】，逐条全 8 字段比对，无豁免）：
+// 由 T-03 的 ⑥⑦⑧ 三类扩到【全部 13 类 40 条】，逐条全 8 字段比对，无豁免）：
 // T-04 落地 M-8 前缀补全（update_res_by_adcode/adcode_name，__init__.py:229-248）、
 // M-9 addr 尾串截取（truncate_index 线程，__init__.py:195/199/224）、
 // M-7 umap 分支与 M-10 空记录后，①②③④⑤⑨⑩⑪⑫⑬ 的命中用例通路打开
@@ -23,9 +23,10 @@
 // 不一致字段）经 eprintln 打到 stderr（非 0 退出由既有 inspect 断言保证）。
 // 落盘报告 = 验收侧固定命令重定向产生，报告路径在本注释锁定（T-07 记 README）：
 //   python tools/check_deps.py && moon build --target native \
-//     && moon test --target native --no-render > testdata/e16_failure_report.txt
+//     && moon test --target native --no-render 2> testdata/e16_failure_report.txt
 //   （绝对路径 = <repo>/testdata/e16_failure_report.txt；仅失败诊断场景生成，
-//    全绿时无需落盘；文件由上述命令产生，非测试自身写入。）
+//    仅 stderr 落盘：全绿时报告 0 字节（T-10 改 `>`→`2>`，T-05 原用 `2>&1`
+//    会把 `Total tests` 写进报告，成功时空文件不可能成立）。）
 // 取舍证据（控制器裁定 2 方案优先级）：方案 (a) extern "c" libc fopen/fputs/
 // fclose 直调经最小探针实测不可行——fopen 版崩溃 0xc0000005（exit 127），
 // puts 版可链接可运行但 MoonBit String 非 '\0' 结尾、输出截断至首 0x00
@@ -187,7 +188,7 @@ fn report(fails : Array[String]) -> String {
 }
 
 ///|
-/// golden 比对骨架主通路：逐条（启用类别 = 全 13 类 32 条，T-04 步 6）→
+/// golden 比对骨架主通路：逐条（启用类别 = 全 13 类 40 条，T-04 步 6）→
 /// 全 8 字段比对；
 /// 版本锚定断言（E9 形态）覆盖全部行：upstream_version = "0.5.5" 且
 /// 与载体头部标识一致。
