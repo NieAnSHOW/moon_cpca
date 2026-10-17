@@ -8,7 +8,7 @@
 // 8 字段逐一比对（失败信息带用例号/input/字段名/期望值/实际值）。
 //
 // 本阶段启用集（T-04 步 6 裁定 = 控制器裁定 1：宿主留在 testdata/，启用集
-// 由 T-03 的 ⑥⑦⑧ 三类扩到【全部 13 类 32 条】，逐条全 8 字段比对，无豁免）：
+// 由 T-03 的 ⑥⑦⑧ 三类扩到【全部 13 类 40 条】，逐条全 8 字段比对，无豁免）：
 // T-04 落地 M-8 前缀补全（update_res_by_adcode/adcode_name，__init__.py:229-248）、
 // M-9 addr 尾串截取（truncate_index 线程，__init__.py:195/199/224）、
 // M-7 umap 分支与 M-10 空记录后，①②③④⑤⑨⑩⑪⑫⑬ 的命中用例通路打开
@@ -23,9 +23,10 @@
 // 不一致字段）经 eprintln 打到 stderr（非 0 退出由既有 inspect 断言保证）。
 // 落盘报告 = 验收侧固定命令重定向产生，报告路径在本注释锁定（T-07 记 README）：
 //   python tools/check_deps.py && moon build --target native \
-//     && moon test --target native --no-render > testdata/e16_failure_report.txt
+//     && moon test --target native --no-render 2> testdata/e16_failure_report.txt
 //   （绝对路径 = <repo>/testdata/e16_failure_report.txt；仅失败诊断场景生成，
-//    全绿时无需落盘；文件由上述命令产生，非测试自身写入。）
+//    仅 stderr 落盘：全绿时报告 0 字节（T-10 改 `>`→`2>`，T-05 原用 `2>&1`
+//    会把 `Total tests` 写进报告，成功时空文件不可能成立）。）
 // 取舍证据（控制器裁定 2 方案优先级）：方案 (a) extern "c" libc fopen/fputs/
 // fclose 直调经最小探针实测不可行——fopen 版崩溃 0xc0000005（exit 127），
 // puts 版可链接可运行但 MoonBit String 非 '\0' 结尾、输出截断至首 0x00
@@ -36,19 +37,9 @@
 /// 启用类别 = golden 全集 13 类（T-04 步 6；类别名与 golden.mbt 行内 `category`
 /// 字段逐字一致，未列入者视为未覆盖 —— 保留白名单形态以便逐类核对覆盖度）。
 let enabled_categories : Array[String] = [
-  "①完整省市区",
-  "②仅区县",
-  "③仅市",
-  "④仅省",
-  "⑤简称",
-  "⑥数字字母混排",
-  "⑦无匹配",
-  "⑧空输入",
-  "⑨同名区无上级",
-  "⑩同名区有上级限定",
-  "⑪umap",
-  "⑫addr吞后续文本",
-  "⑬非BMP-pos",
+  "①完整省市区", "②仅区县", "③仅市", "④仅省", "⑤简称", "⑥数字字母混排",
+  "⑦无匹配", "⑧空输入", "⑨同名区无上级", "⑩同名区有上级限定",
+  "⑪umap", "⑫addr吞后续文本", "⑬非BMP-pos",
 ]
 
 ///|
@@ -90,7 +81,8 @@ fn umap_of(pairs : Array[(String, String)]) -> Map[String, String] {
 fn run_case(c : @testdata.GCase) -> @engine.Location {
   match c.umap {
     None => @engine.extract(c.input, pos_sensitive=true)
-    Some(pairs) => @engine.extract(c.input, pos_sensitive=true, umap=umap_of(pairs))
+    Some(pairs) =>
+      @engine.extract(c.input, pos_sensitive=true, umap=umap_of(pairs))
   }
 }
 
@@ -116,7 +108,17 @@ fn field_triples(
 ///|
 /// 全 8 字段快照（诊断辅助；比对语义仍由 field_triples 逐字段把关）。
 fn snapshot(x : @testdata.GExpected) -> String {
-  "province=" + opt_str(x.province) + " city=" + opt_str(x.city) + " area=" + opt_str(x.area) + " addr=" + opt_str(x.addr) + " adcode=" + opt_str(x.adcode) + " province_pos=\{x.province_pos} city_pos=\{x.city_pos} area_pos=\{x.area_pos}"
+  "province=" +
+  opt_str(x.province) +
+  " city=" +
+  opt_str(x.city) +
+  " area=" +
+  opt_str(x.area) +
+  " addr=" +
+  opt_str(x.addr) +
+  " adcode=" +
+  opt_str(x.adcode) +
+  " province_pos=\{x.province_pos} city_pos=\{x.city_pos} area_pos=\{x.area_pos}"
 }
 
 ///|
@@ -126,7 +128,7 @@ fn snapshot(x : @testdata.GExpected) -> String {
 /// （输入/期望/实际/首个不一致字段；期望/实际同时给出该字段值与全 8 字段
 /// 快照，便于定位）。
 fn diff_case(
-  idx : Int,
+  idx : Int32,
   c : @testdata.GCase,
   got : @engine.Location,
   fails : Array[String],
@@ -139,7 +141,9 @@ fn diff_case(
   let mut first_got = ""
   for (name, e, g) in field_triples(exp, got_e) {
     if e != g {
-      fails.push("case[\{idx}] input=\"\{c.input}\" \{name}: expected=\{e} got=\{g}")
+      fails.push(
+        "case[\{idx}] input=\"\{c.input}\" \{name}: expected=\{e} got=\{g}",
+      )
       if first_name == "" {
         first_name = name
         first_exp = e
@@ -162,7 +166,8 @@ fn e16_report(diags : Array[String]) -> Unit {
     for d in diags {
       msg = msg + "  - " + d + "\n"
     }
-    msg = msg + "==== 落盘报告路径（固定命令重定向）: <repo>/testdata/e16_failure_report.txt ===="
+    msg = msg +
+      "==== 落盘报告路径（固定命令重定向）: <repo>/testdata/e16_failure_report.txt ===="
     eprintln(msg)
   }
 }
@@ -183,7 +188,7 @@ fn report(fails : Array[String]) -> String {
 }
 
 ///|
-/// golden 比对骨架主通路：逐条（启用类别 = 全 13 类 32 条，T-04 步 6）→
+/// golden 比对骨架主通路：逐条（启用类别 = 全 13 类 40 条，T-04 步 6）→
 /// 全 8 字段比对；
 /// 版本锚定断言（E9 形态）覆盖全部行：upstream_version = "0.5.5" 且
 /// 与载体头部标识一致。
@@ -192,8 +197,11 @@ test "golden_compare_enabled" {
   let diags : Array[String] = []
   let mut checked = 0
   for i, c in @testdata.golden_cases {
-    if c.upstream_version != "0.5.5" || c.upstream_version != @testdata.golden_upstream_version {
-      fails.push("case[\{i}] upstream_version 漂移: \{opt_str(Some(c.upstream_version))} (期望 \"0.5.5\"，V-01 锚)")
+    if c.upstream_version != "0.5.5" ||
+      c.upstream_version != @testdata.golden_upstream_version {
+      fails.push(
+        "case[\{i}] upstream_version 漂移: \{opt_str(Some(c.upstream_version))} (期望 \"0.5.5\"，V-01 锚)",
+      )
     }
     if !is_enabled(c.category) {
       continue
@@ -234,18 +242,27 @@ test "golden_same_end_longest_first_probe" {
     }
   }
   if idx < 0 {
-    fails.push("golden 输入集缺失碰撞用例「城东区某某路」（生成器 CASES 被改动？）")
+    fails.push(
+      "golden 输入集缺失碰撞用例「城东区某某路」（生成器 CASES 被改动？）",
+    )
   } else {
     let c = @testdata.golden_cases[idx]
-    if c.expected.area != Some("城东区") || c.expected.adcode != Some("630102") {
-      fails.push("golden 碰撞用例期望漂移（上游实跑应选 城东区/630102）: area=\{opt_str(c.expected.area)} adcode=\{opt_str(c.expected.adcode)}")
+    if c.expected.area != Some("城东区") ||
+      c.expected.adcode != Some("630102") {
+      fails.push(
+        "golden 碰撞用例期望漂移（上游实跑应选 城东区/630102）: area=\{opt_str(c.expected.area)} adcode=\{opt_str(c.expected.adcode)}",
+      )
     }
     let got = @engine.extract(c.input, pos_sensitive=true)
     if got.area != c.expected.area {
-      fails.push("同 end 枚举序破坏: area expected=\{opt_str(c.expected.area)} got=\{opt_str(got.area)}（引擎先行候选 ≠ 上游 ac.iter 同 end 首出）")
+      fails.push(
+        "同 end 枚举序破坏: area expected=\{opt_str(c.expected.area)} got=\{opt_str(got.area)}（引擎先行候选 ≠ 上游 ac.iter 同 end 首出）",
+      )
     }
     if got.adcode != c.expected.adcode {
-      fails.push("同 end 枚举序破坏: adcode expected=\{opt_str(c.expected.adcode)} got=\{opt_str(got.adcode)}")
+      fails.push(
+        "同 end 枚举序破坏: adcode expected=\{opt_str(c.expected.adcode)} got=\{opt_str(got.adcode)}",
+      )
     }
     // T-05 E16：本测试失败时同样给出四项明细（复用 diff_case 诊断通路；
     // 其逐字段 fails 消息由一次性数组承接、不改变本测试自有断言）。

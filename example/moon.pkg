@@ -1,0 +1,5 @@
+import {
+  "vicoproplus/moon_cpca/engine",
+}
+
+pkgtype(kind: "executable")

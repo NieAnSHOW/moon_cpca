@@ -24,8 +24,8 @@ priv struct Cand {
 /// truncate_index 线程：res[_ADDR] = sentence[truncate_index + 1:]）。
 priv struct MatchInfo {
   cands : Array[Cand]
-  start_index : Int
-  end_index : Int
+  start_index : Int32
+  end_index : Int32
   origin_value : String
 }
 
@@ -34,7 +34,7 @@ priv struct MatchInfo {
 /// 对齐上游模块级单例 matcher（cpca/__init__.py:87）。
 priv struct Matcher {
   index : Map[String, Array[Cand]]
-  max_key_len : Int
+  max_key_len : Int32
 }
 
 ///|
@@ -53,7 +53,11 @@ fn build_matcher(records : Array[@adcodes.Rec]) -> Matcher {
   let index : Map[String, Array[Cand]] = Map([])
   let mut max_key_len = 0
   for rec in records {
-    let cand : Cand = { name: rec.name, adcode6: first_n(rec.adcode, 6), level: rec.level }
+    let cand : Cand = {
+      name: rec.name,
+      adcode6: first_n(rec.adcode, 6),
+      level: rec.level,
+    }
     match index.get(rec.name) {
       // 全名键已存在：追加进共享列表，不再新建/覆盖任何键（matcher.py:60-61）
       Some(share) => share.push(cand)
@@ -71,7 +75,7 @@ fn build_matcher(records : Array[@adcodes.Rec]) -> Matcher {
       }
     }
   }
-  { index, max_key_len }
+  { index, max_key_len, }
 }
 
 ///|
@@ -111,7 +115,7 @@ fn strip_stop_suffix(name : String) -> String {
 ///|
 /// 码点（Char）计数 —— pos 口径的唯一合法长度来源。
 /// 禁用 `String::length()`（UTF-16 码元口径，spec §4.2 / R10）。
-fn char_len(s : String) -> Int {
+fn char_len(s : String) -> Int32 {
   let mut n = 0
   for _ in s {
     n = n + 1
@@ -121,7 +125,7 @@ fn char_len(s : String) -> Int {
 
 ///|
 /// 取前 n 个码点（12 位 adcode → 6 位截断，cpca/__init__.py:46）。
-fn first_n(s : String, n : Int) -> String {
+fn first_n(s : String, n : Int32) -> String {
   let buf = StringBuilder()
   let mut i = 0
   for ch in s {
@@ -137,7 +141,7 @@ fn first_n(s : String, n : Int) -> String {
 
 ///|
 /// 丢弃末尾 n 个码点（停用后缀剥离用；调用方保证 n ≤ char_len）。
-fn drop_last_n(s : String, n : Int) -> String {
+fn drop_last_n(s : String, n : Int32) -> String {
   let buf = StringBuilder()
   let mut keep = char_len(s) - n
   for ch in s {
@@ -153,9 +157,9 @@ fn drop_last_n(s : String, n : Int) -> String {
 
 ///|
 /// 由码点数组构造 text[start..=end] 子串（码点下标口径，UTF-16 安全）。
-fn chars_between(chars : Array[Char], start : Int, end : Int) -> String {
+fn chars_between(chars : Array[Char], start : Int32, end : Int32) -> String {
   let buf = StringBuilder()
-  for i in start..=end {
+  for i in start..<=end {
     buf.write_char(chars[i])
   }
   buf.to_string()
@@ -178,22 +182,22 @@ fn chars_between(chars : Array[Char], start : Int, end : Int) -> String {
 fn iter_matches(
   text : String,
   index : Map[String, Array[Cand]],
-  max_key_len : Int,
+  max_key_len : Int32,
 ) -> Array[MatchInfo] {
   let chars : Array[Char] = []
   for ch in text {
     chars.push(ch)
   }
   let results : Array[MatchInfo] = []
-  let mut prev_start : Int? = None
-  let mut prev_end : Int? = None
+  let mut prev_start : Int32? = None
+  let mut prev_end : Int32? = None
   let mut pending : MatchInfo? = None
   for end, _ch in chars {
     let hi = if end + 1 < max_key_len { end + 1 } else { max_key_len }
     // 同 end 内起点升序 = 窗长降序（最长先产出）：短后缀匹配随后被
     // `end <= prev_end` 吞掉（matcher.py:77），与上游同 end 先长后短一致。
     let lo = end - hi + 1
-    for start in lo..=end {
+    for start in lo..<=end {
       let key = chars_between(chars, start, end)
       match index.get(key) {
         Some(cands) => {

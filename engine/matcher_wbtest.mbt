@@ -8,7 +8,11 @@ test "iter_enumeration_order_and_same_start_dedup" {
   // 上海市徐汇区：上海(起点0) 与 上海市(起点0) 同起点 → 全称胜出（M-4）；
   // 徐汇区(起点3) 独立区间照常产出。start_index 为码点下标（左闭右闭口径，
   // 端点 = start + char_len(origin) - 1，故 0/2 与 3/5）。
-  let ms = iter_matches("上海市徐汇区", matcher.index, matcher.max_key_len)
+  let ms = iter_matches(
+    "上海市徐汇区",
+    matcher.index,
+    matcher.max_key_len,
+  )
   inspect(ms[0].origin_value, content="上海市")
   inspect(ms[0].start_index, content="0")
   inspect(ms[1].origin_value, content="徐汇区")

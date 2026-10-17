@@ -17,9 +17,9 @@ pub struct Location {
   area : String?
   addr : String?
   adcode : String?
-  province_pos : Int
-  city_pos : Int
-  area_pos : Int
+  province_pos : Int32
+  city_pos : Int32
+  area_pos : Int32
 }
 
 ///|
@@ -52,10 +52,15 @@ pub fn extract(
 /// 零网络 / 零文件 IO / 零环境变量读取（E13）：来源为兄弟数据包编译期常量。
 let adcode_dict : Map[String, Cand] = build_adcode_dict(@adcodes.adcodes)
 
+///|
 fn build_adcode_dict(records : Array[@adcodes.Rec]) -> Map[String, Cand] {
   let m : Map[String, Cand] = Map([])
   for rec in records {
-    m[rec.adcode] = { name: rec.name, adcode6: first_n(rec.adcode, 6), level: rec.level }
+    m[rec.adcode] = {
+      name: rec.name,
+      adcode6: first_n(rec.adcode, 6),
+      level: rec.level,
+    }
   }
   m
 }
@@ -117,7 +122,7 @@ fn names_by_adcode(adcode6 : String) -> (String?, String?, String?) {
 /// String::length()/slice 的码元口径），故按 Char 迭代重建。
 /// 对应上游 `sentence[truncate_index + 1:]`（__init__.py:199/224，
 /// Python str 索引 = 码点索引，V-11）。
-fn tail_after_codepoint(text : String, start : Int) -> String {
+fn tail_after_codepoint(text : String, start : Int32) -> String {
   let buf = StringBuilder()
   let mut i = 0
   for ch in text {
@@ -139,15 +144,16 @@ fn tail_after_codepoint(text : String, start : Int) -> String {
 ///   adcode = 6 位末级码。
 fn build_record(
   adcode : String?,
-  truncate_index : Int,
+  truncate_index : Int32,
   text : String,
-  province_pos : Int,
-  city_pos : Int,
-  area_pos : Int,
+  province_pos : Int32,
+  city_pos : Int32,
+  area_pos : Int32,
 ) -> Location {
   match adcode {
     None => empty_location(province_pos, city_pos, area_pos)
-    Some(a) => filled_location(a, truncate_index, text, province_pos, city_pos, area_pos)
+    Some(a) =>
+      filled_location(a, truncate_index, text, province_pos, city_pos, area_pos)
   }
 }
 
@@ -155,9 +161,9 @@ fn build_record(
 /// empty_record（__init__.py:152-158）：省/市/区/地址/adcode 全 None，
 /// pos 三槽由调用方线程携带（无匹配时恒为初值 -1，M-10 / V-10）。
 fn empty_location(
-  province_pos : Int,
-  city_pos : Int,
-  area_pos : Int,
+  province_pos : Int32,
+  city_pos : Int32,
+  area_pos : Int32,
 ) -> Location {
   let loc : Location = {
     province: None,
@@ -178,11 +184,11 @@ fn empty_location(
 /// 空尾串 = Some("")，③④⑤⑩ 等类 golden A 级期望），adcode = 6 位末级码。
 fn filled_location(
   adcode6 : String,
-  truncate_index : Int,
+  truncate_index : Int32,
   text : String,
-  province_pos : Int,
-  city_pos : Int,
-  area_pos : Int,
+  province_pos : Int32,
+  city_pos : Int32,
+  area_pos : Int32,
 ) -> Location {
   let (p, c, ar) = names_by_adcode(adcode6)
   let loc : Location = {
@@ -253,12 +259,7 @@ fn extract_one(
         }
         if is_county {
           return build_record(
-            adcode,
-            truncate_index,
-            text,
-            province_pos,
-            city_pos,
-            area_pos,
+            adcode, truncate_index, text, province_pos, city_pos, area_pos,
           )
         }
       }

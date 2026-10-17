@@ -10,6 +10,7 @@
 //   addr 吞后续文本         → location_addr_swallows_tail              → V-09（吉林省朝阳区，而我家… → 「，而我家在…」）
 //   addr 空尾串 = Some("")   → location_addr_empty_tail_some           → golden ③④ 类（成都市 / 北京市 实跑 = ""）
 //   非 BMP pos 口径         → location_pos_codepoint_index_non_bmp      → V-11/V-12（上海😀市徐汇区 area_pos=4）
+//   pos_sensitive 缺省/false → location_pos_default_minus_one              → spec §3.5 row 14（上游 pos_sensitive 默认 False，无 pos 列）
 // 上游测试域映射（spec §4.5）：tests/test_structures.py（Pca 字段/NULL 性/pos 结构）
 // → 本文件 Location 字段/NULL 性/pos 结构用例；tests/test_cpca.py（_assert_line
 // 的 8 值断言形态）→ 同形态逐字段断言。
@@ -30,21 +31,36 @@ fn opt_str(s : String?) -> String {
 ///|
 /// Int 的确定性展示（Option[Int] 同形态；本结构体 pos 为非空 Int，
 /// 此助手仅供字段表展示复用）。
-fn int_str(i : Int) -> String {
+fn int_str(i : Int32) -> String {
   "\{i}"
 }
 
 ///|
 /// Location 8 字段逐字展示（由 location_fields_shape_and_types 快照断言消费）。
 fn dump(loc : Location) -> String {
-  "province=" + opt_str(loc.province) + " city=" + opt_str(loc.city) + " area=" + opt_str(loc.area) + " addr=" + opt_str(loc.addr) + " adcode=" + opt_str(loc.adcode) + " province_pos=" + int_str(loc.province_pos) + " city_pos=" + int_str(loc.city_pos) + " area_pos=" + int_str(loc.area_pos)
+  "province=" +
+  opt_str(loc.province) +
+  " city=" +
+  opt_str(loc.city) +
+  " area=" +
+  opt_str(loc.area) +
+  " addr=" +
+  opt_str(loc.addr) +
+  " adcode=" +
+  opt_str(loc.adcode) +
+  " province_pos=" +
+  int_str(loc.province_pos) +
+  " city_pos=" +
+  int_str(loc.city_pos) +
+  " area_pos=" +
+  int_str(loc.area_pos)
 }
 
 ///|
 /// 码点计数（for 计数形态，非 String::length() 的 UTF-16 码元口径）。
 /// 本助手仅用于 adcode 字段位宽校验（ASCII 数字字段宽度 = 6，spec §4.2
 /// adcode 行），不参与任何文本位置计算；位置口径由引擎侧 pos 字段断言覆盖。
-fn code_len(s : String?) -> Int {
+fn code_len(s : String?) -> Int32 {
   match s {
     None => 0
     Some(v) => {
@@ -57,6 +73,7 @@ fn code_len(s : String?) -> Int {
   }
 }
 
+///|
 /// 是否全为 ASCII 数字（adcode 形态校验；None = false）。
 fn all_digits(s : String?) -> Bool {
   match s {
@@ -73,8 +90,9 @@ fn all_digits(s : String?) -> Bool {
   }
 }
 
+///|
 /// 是否以 n 个 '0' 结尾（末级语义校验；None = false）。
-fn has_suffix_zeros(s : String?, n : Int) -> Bool {
+fn has_suffix_zeros(s : String?, n : Int32) -> Bool {
   match s {
     None => false
     Some(v) => {
@@ -122,9 +140,9 @@ test "location_fields_shape_and_types" {
   inspect(opt_str(ad), content="Some(\"中关村大街1号\")")
   inspect(opt_str(ac), content="Some(\"110108\")")
   // 3 个非空 Int 字段（非 Option；与整数字面量直接相等比较）。
-  let pp : Int = res.province_pos
-  let cp : Int = res.city_pos
-  let ap : Int = res.area_pos
+  let pp : Int32 = res.province_pos
+  let cp : Int32 = res.city_pos
+  let ap : Int32 = res.area_pos
   inspect(pp, content="0")
   inspect(cp, content="-1")
   inspect(ap, content="3")
@@ -149,7 +167,10 @@ test "location_adcode_six_digits" {
   // 可观察面：凡命中，adcode 恒为 6 位数字（省/市/区三类末级各一条）。
   let province_case = extract("江苏省", pos_sensitive=true)
   let city_case = extract("成都市", pos_sensitive=true)
-  let area_case = extract("徐汇区虹漕路461号58号楼5楼", pos_sensitive=true)
+  let area_case = extract(
+    "徐汇区虹漕路461号58号楼5楼",
+    pos_sensitive=true,
+  )
   inspect(code_len(province_case.adcode), content="6")
   inspect(code_len(city_case.adcode), content="6")
   inspect(code_len(area_case.adcode), content="6")
@@ -278,8 +299,14 @@ test "location_direct_municipality_city_is_shiqu" {
   inspect(opt_str(prov_only.addr), content="Some(\"\")")
   inspect(opt_str(prov_only.adcode), content="Some(\"110000\")")
   // 天津/上海同级形态（V-08 同规则；天津市上游实跑 = 省 120000）。
-  inspect(opt_str(extract("天津市", pos_sensitive=true).adcode), content="Some(\"120000\")")
-  inspect(opt_str(extract("上海市徐汇区", pos_sensitive=true).city), content="Some(\"市辖区\")")
+  inspect(
+    opt_str(extract("天津市", pos_sensitive=true).adcode),
+    content="Some(\"120000\")",
+  )
+  inspect(
+    opt_str(extract("上海市徐汇区", pos_sensitive=true).city),
+    content="Some(\"市辖区\")",
+  )
 }
 
 ///|
@@ -313,16 +340,69 @@ test "location_addr_swallows_tail_and_empty_string" {
   // M-9（__init__.py:199,224 `sentence[truncate_index + 1:]`）：addr =
   // 最后一个匹配词之后的子串。V-09 上游实跑：
   // '你家在吉林省朝阳区，而我家在北京市朝阳区，太远了' → addr = '，而我家在北京市朝阳区，太远了'。
-  let res = extract("你家在吉林省朝阳区，而我家在北京市朝阳区，太远了", pos_sensitive=true)
-  inspect(opt_str(res.addr), content="Some(\"，而我家在北京市朝阳区，太远了\")")
+  let res = extract(
+    "你家在吉林省朝阳区，而我家在北京市朝阳区，太远了",
+    pos_sensitive=true,
+  )
+  inspect(
+    opt_str(res.addr),
+    content="Some(\"，而我家在北京市朝阳区，太远了\")",
+  )
   inspect(opt_str(res.adcode), content="Some(\"220104\")")
   inspect(res.province_pos, content="3")
   inspect(res.area_pos, content="6")
   // 空尾串 = Some("")（不是 None）：末匹配词之后无文本（golden ③④ 类）。
-  let tail_empty = extract("北京市石景山区金顶北路22号(地铁站B口步行80米)", pos_sensitive=true)
-  inspect(opt_str(tail_empty.addr), content="Some(\"金顶北路22号(地铁站B口步行80米)\")")
-  inspect(opt_str(extract("成都市", pos_sensitive=true).addr), content="Some(\"\")")
-  inspect(opt_str(extract("江苏省", pos_sensitive=true).addr), content="Some(\"\")")
+  let tail_empty = extract(
+    "北京市石景山区金顶北路22号(地铁站B口步行80米)",
+    pos_sensitive=true,
+  )
+  inspect(
+    opt_str(tail_empty.addr),
+    content="Some(\"金顶北路22号(地铁站B口步行80米)\")",
+  )
+  inspect(
+    opt_str(extract("成都市", pos_sensitive=true).addr),
+    content="Some(\"\")",
+  )
+  inspect(
+    opt_str(extract("江苏省", pos_sensitive=true).addr),
+    content="Some(\"\")",
+  )
   // 无匹配时 addr = None（V-10）—— 与 Some("") 语义区分开。
   inspect(opt_str(extract("32323", pos_sensitive=true).addr), content="None")
+}
+
+///|
+test "location_pos_default_minus_one" {
+  // pos_sensitive 契约（spec §3.5 第 14 行；上游 cpca/__init__.py:90 默认
+  // `pos_sensitive=False`）：pos_sensitive=false（含缺省）路径下输出无 pos
+  // 概念列，MoonBit 侧 pos 三槽恒为 -1（不填写位置）。
+  // 两路必须各自走到：不传 pos_sensitive 与显式 pos_sensitive=false。
+  let d1 = extract("徐汇区虹漕路461号58号楼5楼")
+  inspect(d1.province_pos, content="-1")
+  inspect(d1.city_pos, content="-1")
+  inspect(d1.area_pos, content="-1")
+  let d2 = extract("上海市浦东新区东明路街道三林路15号")
+  inspect(d2.province_pos, content="-1")
+  inspect(d2.city_pos, content="-1")
+  inspect(d2.area_pos, content="-1")
+  let e1 = extract("徐汇区虹漕路461号58号楼5楼", pos_sensitive=false)
+  inspect(e1.province_pos, content="-1")
+  inspect(e1.city_pos, content="-1")
+  inspect(e1.area_pos, content="-1")
+  let e2 = extract(
+    "上海市浦东新区东明路街道三林路15号",
+    pos_sensitive=false,
+  )
+  inspect(e2.province_pos, content="-1")
+  inspect(e2.city_pos, content="-1")
+  inspect(e2.area_pos, content="-1")
+  // 显式 false 与缺省两路输出逐字段一致（仅锁 pos 三槽）。
+  inspect(dump(e1) == dump(d1), content="true")
+  inspect(dump(e2) == dump(d2), content="true")
+  // 负向对照：显式 pos_sensitive=true 同一输入给出真实位置（此处即红，
+  // 防止「恒 -1」在 pos_sensitive=true 路径上被误判为通过）。
+  let t = extract("徐汇区虹漕路461号58号楼5楼", pos_sensitive=true)
+  inspect(t.area_pos, content="0")
+  inspect(t.city_pos, content="-1")
 }

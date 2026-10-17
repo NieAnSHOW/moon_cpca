@@ -1,3 +1,38 @@
 _build/
 # Python bytecode caches from the tools/ scripts and unit tests.
 __pycache__/
+*.pyc
+.pytest_cache/
+# MoonBit generated interface and local failure reports.
+pkg.generated.mbti
+testdata/e16_failure_report.txt
+
+# Local editor/IDE state (pre-existing on this workstation; not a deliverable).
+.qoder/
+
+# Vendored cpca upstream extras that are NOT part of the 8-path snapshot
+# (spec §3.2/M-03: LICENSE; cpca/{__init__,matcher,structures,exceptions}.py;
+# cpca/resources/{__init__.py,adcodes.csv}; tests/test_cpca.py). Exactly the
+# 18 paths below exist on disk (verified: `git ls-files --others` under this
+# directory minus the __pycache__/.pytest_cache caches already covered by
+# the generic rules above = 18). They stay on disk as oracle provenance but
+# are excluded from the delivery tree. The tracked 8 paths are unaffected:
+# gitignore never hides tracked files.
+chinese_province_city_area_mapper/.gitignore
+chinese_province_city_area_mapper/.travis.yml
+chinese_province_city_area_mapper/MANIFEST.in
+chinese_province_city_area_mapper/Makefile
+chinese_province_city_area_mapper/Pipfile
+chinese_province_city_area_mapper/README.MD
+chinese_province_city_area_mapper/README.rst
+chinese_province_city_area_mapper/cpca/drawer.py
+chinese_province_city_area_mapper/cpca/resources/56_nations.csv
+chinese_province_city_area_mapper/local-sync.py
+chinese_province_city_area_mapper/requirements.txt
+chinese_province_city_area_mapper/setup.py
+chinese_province_city_area_mapper/sync.py
+chinese_province_city_area_mapper/tests/__init__.py
+chinese_province_city_area_mapper/tests/addr.csv
+chinese_province_city_area_mapper/tests/test_drawer.py
+chinese_province_city_area_mapper/tests/test_matcher.py
+chinese_province_city_area_mapper/tests/test_structures.py

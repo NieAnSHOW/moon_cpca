@@ -122,7 +122,11 @@ test "m2_non_overlapping_intervals_skip_short" {
   // 「上海市徐汇区虹漕路461号58号楼5楼」两句独立命中，短匹配「上海」(0-1) 被
   // 随后同起点的「上海市」(0-2) 顶掉（M-1/M-4）；「徐汇区」(3-5) 与前区间
   // (0-2) 不重叠照常产出；区间序列严格升序且不重叠（M-2 不变量）。
-  let ms = iter_matches("上海市徐汇区虹漕路461号58号楼5楼", matcher.index, matcher.max_key_len)
+  let ms = iter_matches(
+    "上海市徐汇区虹漕路461号58号楼5楼",
+    matcher.index,
+    matcher.max_key_len,
+  )
   inspect(join_values(ms), content="上海市,徐汇区")
   inspect(ms[0].start_index, content="0")
   inspect(ms[0].end_index, content="2")
@@ -131,10 +135,17 @@ test "m2_non_overlapping_intervals_skip_short" {
   // M-2 同 end 短后缀被吞（实测 pyahocorasick 同 end 先长后短，锚
   // task-03 裁定 4 的 ac.iter('城东区') 记录）：「城东区某某路」只产出
   // 城东区（630102 青海西宁），其短后缀「东区」（510402 攀枝花）不产出。
-  let cd = iter_matches("城东区某某路", matcher.index, matcher.max_key_len)
+  let cd = iter_matches(
+    "城东区某某路",
+    matcher.index,
+    matcher.max_key_len,
+  )
   inspect(join_values(cd), content="城东区")
   inspect(join_adcodes(cd[0].cands), content="630102")
-  inspect(extract("城东区某某路", pos_sensitive=true).adcode is Some("630102"), content="true")
+  inspect(
+    extract("城东区某某路", pos_sensitive=true).adcode is Some("630102"),
+    content="true",
+  )
 }
 
 ///|
@@ -166,14 +177,33 @@ test "m3_abbrev_shares_list_with_full_name" {
   inspect(join_adcodes(abbr), content="320000")
   inspect(join_adcodes(full), content="320000")
   // 端到端简称命中（V-14 上游实跑）：江苏→320000、淮安→320800。
-  inspect(extract("江苏", pos_sensitive=true).adcode is Some("320000"), content="true")
-  inspect(extract("淮安", pos_sensitive=true).adcode is Some("320800"), content="true")
+  inspect(
+    extract("江苏", pos_sensitive=true).adcode is Some("320000"),
+    content="true",
+  )
+  inspect(
+    extract("淮安", pos_sensitive=true).adcode is Some("320800"),
+    content="true",
+  )
   // 自治区简称（V-17/V-14）：内蒙古自治区→150000、宁夏→640000；
   // 全称与简称两条路径给出同一候选。
-  inspect(extract("内蒙古自治区", pos_sensitive=true).adcode is Some("150000"), content="true")
-  inspect(extract("内蒙古", pos_sensitive=true).adcode is Some("150000"), content="true")
-  inspect(extract("宁夏", pos_sensitive=true).adcode is Some("640000"), content="true")
-  inspect(extract("宁夏回族自治区", pos_sensitive=true).adcode is Some("640000"), content="true")
+  inspect(
+    extract("内蒙古自治区", pos_sensitive=true).adcode is Some("150000"),
+    content="true",
+  )
+  inspect(
+    extract("内蒙古", pos_sensitive=true).adcode is Some("150000"),
+    content="true",
+  )
+  inspect(
+    extract("宁夏", pos_sensitive=true).adcode is Some("640000"),
+    content="true",
+  )
+  inspect(
+    extract("宁夏回族自治区", pos_sensitive=true).adcode
+    is Some("640000"),
+    content="true",
+  )
 }
 
 ///|
@@ -182,7 +212,11 @@ test "m4_same_start_dedup_yields_longer" {
   // 全称后到 → 只产出全称并清空挂起项。「上海市徐汇区」中「上海」(0-1)
   // 与「上海市」(0-2) 同起点，产出唯一匹配「上海市」（V-16 单次匹配语义；
   // 若去重失效会产出两条且首条为简称）。
-  let ms = iter_matches("上海市徐汇区", matcher.index, matcher.max_key_len)
+  let ms = iter_matches(
+    "上海市徐汇区",
+    matcher.index,
+    matcher.max_key_len,
+  )
   inspect(join_values(ms), content="上海市,徐汇区")
   inspect(join_adcodes(ms[0].cands), content="310000")
   // 端到端不受简称残留影响：三级记录由最终 adcode 前缀反查（M-8，V-07/V-08）。
@@ -271,7 +305,10 @@ test "m6_first_candidate_when_no_parent" {
   inspect(res.adcode is Some("220104"), content="true")
   inspect(res.area_pos, content="0")
   // get_one_addr 语义（matcher.py:21-22）同取首元素：单候选时不变。
-  inspect(cand_code(get_match_addr(cands_of("徐汇区"), None, None)), content="310104")
+  inspect(
+    cand_code(get_match_addr(cands_of("徐汇区"), None, None)),
+    content="310104",
+  )
 }
 
 ///|
@@ -282,7 +319,11 @@ test "m7_umap_selects_candidate_by_adcode" {
   let cy = cands_of("朝阳区")
   inspect(cand_code(get_match_addr(cy, None, Some("110105"))), content="110105")
   let umap : Map[String, String] = Map([("朝阳区", "110105")])
-  let res = extract("朝阳区汉庭酒店大山子店", pos_sensitive=true, umap=umap)
+  let res = extract(
+    "朝阳区汉庭酒店大山子店",
+    pos_sensitive=true,
+    umap~,
+  )
   inspect(res.province is Some("北京市"), content="true")
   inspect(res.city is Some("市辖区"), content="true")
   inspect(res.area is Some("朝阳区"), content="true")
@@ -301,11 +342,20 @@ test "m7_umap_unknown_falls_back_to_first" {
   // V-05 口径）；umap 键不存在同样回落。
   let cy = cands_of("朝阳区")
   inspect(cand_code(get_match_addr(cy, None, Some("999999"))), content="220104")
-  let res_unknown =
-    extract("朝阳区汉庭酒店大山子店", pos_sensitive=true, umap=Map([("朝阳区", "999999")]))
-  let res_other_key =
-    extract("朝阳区汉庭酒店大山子店", pos_sensitive=true, umap=Map([("不存在区", "110105")]))
-  let res_absent = extract("朝阳区汉庭酒店大山子店", pos_sensitive=true)
+  let res_unknown = extract(
+    "朝阳区汉庭酒店大山子店",
+    pos_sensitive=true,
+    umap=Map([("朝阳区", "999999")]),
+  )
+  let res_other_key = extract(
+    "朝阳区汉庭酒店大山子店",
+    pos_sensitive=true,
+    umap=Map([("不存在区", "110105")]),
+  )
+  let res_absent = extract(
+    "朝阳区汉庭酒店大山子店",
+    pos_sensitive=true,
+  )
   inspect(res_unknown.adcode is Some("220104"), content="true")
   inspect(res_other_key.adcode is Some("220104"), content="true")
   inspect(res_absent.adcode is Some("220104"), content="true")
@@ -334,25 +384,37 @@ test "m7_umap_value_width_and_empty_boundary" {
   let cy = cands_of("朝阳区")
   // 白盒：first_adcode 与 6 位候选 adcode 等值比较（M-7 选择支路语义）。
   // 12 位全码 / 空串均不命中 → 回落 cands[0] = 220104。
-  inspect(cand_code(get_match_addr(cy, None, Some("110105000000"))), content="220104")
+  inspect(
+    cand_code(get_match_addr(cy, None, Some("110105000000"))),
+    content="220104",
+  )
   inspect(cand_code(get_match_addr(cy, None, Some(""))), content="220104")
   // 公开入口：12 位 value → 回落首元素（不按 110105 选）。
-  let res_wide =
-    extract("朝阳区汉庭酒店大山子店", pos_sensitive=true, umap=Map([("朝阳区", "110105000000")]))
+  let res_wide = extract(
+    "朝阳区汉庭酒店大山子店",
+    pos_sensitive=true,
+    umap=Map([("朝阳区", "110105000000")]),
+  )
   inspect(res_wide.adcode is Some("220104"), content="true")
   inspect(res_wide.province is Some("吉林省"), content="true")
   inspect(res_wide.city is Some("长春市"), content="true")
   inspect(res_wide.area is Some("朝阳区"), content="true")
   inspect(res_wide.addr is Some("汉庭酒店大山子店"), content="true")
   // 公开入口：空串 value → 同样回落首元素。
-  let res_empty =
-    extract("朝阳区汉庭酒店大山子店", pos_sensitive=true, umap=Map([("朝阳区", "")]))
+  let res_empty = extract(
+    "朝阳区汉庭酒店大山子店",
+    pos_sensitive=true,
+    umap=Map([("朝阳区", "")]),
+  )
   inspect(res_empty.adcode is Some("220104"), content="true")
   inspect(res_empty.province is Some("吉林省"), content="true")
   inspect(res_empty.city is Some("长春市"), content="true")
   // 反证口径：6 位 value 命中选择支路 → 110105（证明回落不是"永远取首元素"，
   // 等值比较在位宽正确时确实生效；与 m7_umap_selects_candidate_by_adcode 同锁）。
-  let res_exact =
-    extract("朝阳区汉庭酒店大山子店", pos_sensitive=true, umap=Map([("朝阳区", "110105")]))
+  let res_exact = extract(
+    "朝阳区汉庭酒店大山子店",
+    pos_sensitive=true,
+    umap=Map([("朝阳区", "110105")]),
+  )
   inspect(res_exact.adcode is Some("110105"), content="true")
 }
