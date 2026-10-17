@@ -15,3 +15,14 @@ data/adcodes.mbt text eol=lf
 chinese_province_city_area_mapper/cpca/resources/adcodes.csv text eol=lf
 testdata/golden.jsonl text eol=lf
 testdata/golden.mbt text eol=lf
+
+# Files that `moon fmt` rewrites in place during regen. They have no byte
+# contract of their own, but without eol=lf a default clone
+# (core.autocrlf=true) checks them out as CRLF; regen then rewrites LF bytes
+# and `git status --short` reports them as modified through a stale index
+# stat entry even though the blob is identical (measured: regen step 8 exit 1
+# on exactly these four files). Pinning LF keeps a default clone green.
+data/adcodes_test.mbt text eol=lf
+data/moon.pkg text eol=lf
+testdata/golden_test.mbt text eol=lf
+testdata/moon.pkg text eol=lf
