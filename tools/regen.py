@@ -278,7 +278,20 @@ class Regen:
     ) -> Dict[str, Any]:
         remaining = self.deadline - time.monotonic()
         if remaining <= 0:
-            return self.finish_step(number, name, argv, -9, "", "total timeout exceeded", True)
+            result = self.finish_step(
+                number,
+                name,
+                argv,
+                2,
+                "",
+                "total wrapper timeout exceeded before step start (budget %ds)\n"
+                % int(TOTAL_TIMEOUT),
+                True,
+            )
+            result["duration"] = 0.0
+            result["timeout_limit"] = 0.0
+            result["total_timeout"] = True
+            return result
         timeout = min(STEP_TIMEOUT, remaining)
 
         base_env = dict(os.environ)
@@ -312,8 +325,11 @@ class Regen:
         except subprocess.TimeoutExpired as exc:
             stdout = (exc.stdout or b"").decode("utf-8", "replace")
             stderr = (exc.stderr or b"").decode("utf-8", "replace")
-            code = -9
+            code = 2
             timed_out = True
+            stderr = (
+                "timeout: step killed after the %.1fs limit\n" % timeout
+            ) + stderr
         except OSError as exc:
             stdout = ""
             stderr = "cannot execute: %s" % exc
@@ -332,8 +348,9 @@ class Regen:
             events = self.collect_events(name, events_path)
             if events:
                 # Network violation is a generation failure regardless of the
-                # child's own exit status.
-                code = 97 if code == 0 else code
+                # child's own exit status.  Report the wrapper-level exit code
+                # (2) rather than the child's internal sentinel (97).
+                code = 2
                 event_names = ", ".join(
                     sorted({str(ev.get("event", "?")) for ev in events})
                 )
@@ -344,6 +361,8 @@ class Regen:
 
         result = self.finish_step(number, name, argv, code, stdout, stderr, timed_out)
         result["duration"] = duration
+        result["timeout_limit"] = timeout
+        result["total_timeout"] = bool(timed_out and timeout < STEP_TIMEOUT)
         if self.verbose:
             print("TIME step %d %.3fs" % (number, duration), flush=True)
         return result
@@ -419,20 +438,33 @@ class Regen:
         return 2
 
     def report_failure(self, result: Dict[str, Any], step_class: str) -> int:
-        exit_code = self.failure_exit(step_class)
-        detail = ""
         if result["timed_out"]:
-            detail = "step timed out after %.0fs (limit %ds)" % (
-                result.get("duration", 0.0),
-                int(STEP_TIMEOUT),
-            )
-        elif result["exit"] == -2:
-            detail = "command could not be executed"
+            # Spec §3.3: every timeout exits 2, regardless of step class.
+            limit = float(result.get("timeout_limit") or 0.0)
+            if result.get("total_timeout"):
+                if limit > 0:
+                    detail = (
+                        "step timed out after %.1fs (actual limit %.1fs; "
+                        "total wrapper budget exhausted)"
+                        % (result.get("duration", 0.0), limit)
+                    )
+                else:
+                    detail = "total wrapper timeout exceeded before step start"
+            else:
+                detail = "step timed out after %.1fs (actual limit %.1fs)" % (
+                    result.get("duration", 0.0),
+                    limit,
+                )
+            exit_code = 2
         else:
-            detail = _first_error_line(result["stdout"], result["stderr"])
-        if result["name"] == "git_status" and result["stdout"].strip():
-            detail = result["stdout"].strip().splitlines()[0][:500]
-            exit_code = 4
+            exit_code = self.failure_exit(step_class)
+            if result["exit"] == -2:
+                detail = "command could not be executed"
+            else:
+                detail = _first_error_line(result["stdout"], result["stderr"])
+            if result["name"] == "git_status" and result["stdout"].strip():
+                detail = result["stdout"].strip().splitlines()[0][:500]
+                exit_code = 4
 
         sys.stderr.write("regen: step %d %s failed\n" % (result["n"], result["name"]))
         sys.stderr.write("regen: command: %s\n" % result["argv"])
