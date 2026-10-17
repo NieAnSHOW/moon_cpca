@@ -76,8 +76,8 @@ python tools/check_deps.py          # 校验运行时依赖白名单
 | 目标 | 状态 | 证据 |
 |------|------|------|
 | native | green | 本机 `moon run --target native example` 退出 0 且 stdout 与上文逐行一致；`moon test --target native --no-render` 40/40 通过 |
-| wasm-gc | green | CI 验证（`.github/workflows/ci.yml` 的 wasm-gc job，待 T-11 首次完整运行回填）；本机 `moon build --target wasm-gc` 退出 0，本机测试二进制因 loader 报 `0xc0000139` 不可执行 |
-| js | unresolved（本机 node 垫片缺失；CI js job 待 T-11 首次运行） | 本机 `moon test --target js --no-render` 不可执行；CI js job 由 `if: always()` writer 写 `_build/js_status.txt`（`green` 或 `unresolved: <reason>`） |
+| wasm-gc | green | CI 首次完整运行 [run 39060316841](https://github.com/vicoplus/moon_cpca/actions/runs/39060316841)（job `wasm-gc`，commit `c6a7e74`）：`moon build --target wasm-gc` 退出 0，`moon test --target wasm-gc --no-render` 输出 `Total tests: 40, passed: 40, failed: 0`；本机测试二进制因 loader 报 `0xc0000139` 不可执行（`[LOCAL_DEAD_LINK]`，已由 CI 回补） |
+| js | green | CI 首次完整运行 [run 39060316841](https://github.com/vicoplus/moon_cpca/actions/runs/39060316841)（job `js`，commit `c6a7e74`）：`moon test --target js --no-render` 输出 `Total tests: 40, passed: 40, failed: 0`，artifact `js-status` 内容为 `green`；本机 node 垫片缺失不可执行 |
 
 native / wasm-gc 为本包支持目标；js 为非阻断目标，状态按 CI 运行记录显式二选一，不写默认值。
 
