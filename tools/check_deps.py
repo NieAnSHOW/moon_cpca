@@ -3,7 +3,7 @@
 
 判据：`moon.mod` 的 deps/import 条目 ∪ 引擎包 `moon.pkg` 的 import 条目
 ⊆ { `moonbitlang/core/*`, 兄弟单元数据包 `"<module>/data"` }，
-其中 `<module>` = 被检 `moon.mod` 的 name 字段（本仓库 = moon_cpca）。
+其中 `<module>` = 被检 `moon.mod` 的 name 字段（本仓库 = vicoproplus/moon_cpca）。
 白名单外计数 = 0 → 退出码 0；否则打印清单并非 0 退出。
 
 说明：
