@@ -1,3 +1,8 @@
 _build/
 # Python bytecode caches from the tools/ scripts and unit tests.
 __pycache__/
+*.pyc
+.pytest_cache/
+# MoonBit generated interface and local failure reports.
+pkg.generated.mbti
+testdata/e16_failure_report.txt
