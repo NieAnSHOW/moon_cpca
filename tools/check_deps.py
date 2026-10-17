@@ -34,6 +34,12 @@ def dep_entries(fragment: str) -> list[str]:
     """从 deps/import 文本片段提取依赖条目名。"""
     keys = QUOTED_KEY_RE.findall(fragment)
     return keys if keys else QUOTED_RE.findall(fragment)
+
+
+def strip_version(entry: str) -> str:
+    """剥离条目 `@version` 后缀再判白名单（"moonbitlang/x@0.4.6" → "moonbitlang/x"）。"""
+    return entry.split("@", 1)[0]
+
 # moon.mod 中承载依赖的键（rr_moon_mod TOML 形态）
 DEP_KEY_RE = re.compile(
     r"^\s*(deps|dep|dependencies|dev-dependencies|dev_dependencies|"
@@ -46,6 +52,30 @@ DEP_SECTION_RE = re.compile(
     re.IGNORECASE,
 )
 ANY_SECTION_RE = re.compile(r"^\s*\[.*\]\s*$")
+# `import { ... }` 语句块形态（无等号；moon.mod 标准第三方依赖声明写法，
+# 同时是 moon.pkg 侧唯一 import 形态 —— 两侧共用本 brace 逻辑，勿与
+# DEP_KEY_RE 的 `import = {...}` 键值行形态混淆）。
+IMPORT_BRACE_RE = re.compile(r"^\s*import\s*\{(?P<rest>.*)$")
+
+
+def extract_import_brace_entries(text: str) -> list[str]:
+    """`import { "name@ver", ... }` 语句块（含单行闭合与多行块）内引号条目。"""
+    entries: list[str] = []
+    in_block = False
+    for line in text.splitlines():
+        if in_block:
+            entries.extend(dep_entries(line))
+            if "}" in line:
+                in_block = False
+            continue
+        m = IMPORT_BRACE_RE.match(line)
+        if m:
+            rest = m.group("rest")
+            entries.extend(dep_entries(rest))
+            if "}" not in rest:  # 多行块起始：import { 同行未闭合
+                in_block = True
+    return entries
+
 
 
 def parse_module_name(mod_text: str) -> str:
@@ -57,7 +87,8 @@ def parse_module_name(mod_text: str) -> str:
 
 
 def extract_mod_deps(mod_text: str) -> list[str]:
-    """moon.mod 的 deps/import 条目：键值行 + 表段落内的引号字面量。"""
+    """moon.mod 的 deps/import 条目：键值行 + 表段落内的引号字面量
+    + `import { ... }` 语句块形态（复用 moon.pkg 侧 brace 逻辑）。"""
     deps: list[str] = []
     in_dep_section = False
     in_dep_braces = False
@@ -83,26 +114,14 @@ def extract_mod_deps(mod_text: str) -> list[str]:
             # 多行表值 deps = { ... （开 brace 未闭合）
             if "{" in val and "}" not in val:
                 in_dep_braces = True
+    # 语句块形态 import { "name@ver" }（DEP_KEY_RE 要求 `=`，此形态无等号漏判 → R1 修复）
+    deps.extend(extract_import_brace_entries(mod_text))
     return deps
 
 
 def extract_pkg_imports(pkg_text: str) -> list[str]:
     """engine/moon.pkg 的 import { "..." @alias, } 块内引号字面量。"""
-    imports: list[str] = []
-    in_block = False
-    for line in pkg_text.splitlines():
-        if in_block:
-            if "}" in line:
-                in_block = False
-            imports.extend(dep_entries(line))
-            continue
-        m = re.match(r"^\s*import\s*\{(?P<rest>.*)$", line)
-        if m:
-            rest = m.group("rest")
-            imports.extend(dep_entries(rest))
-            if "}" not in rest:  # 多行块起始：import { 同行未闭合
-                in_block = True
-    return imports
+    return extract_import_brace_entries(pkg_text)
 
 
 def check(mod_path: Path, pkg_path: Path) -> int:
@@ -111,7 +130,9 @@ def check(mod_path: Path, pkg_path: Path) -> int:
     module = parse_module_name(mod_text)
     mod_deps = extract_mod_deps(mod_text)
     pkg_imports = extract_pkg_imports(pkg_text)
-    union = list(dict.fromkeys(mod_deps + pkg_imports))  # 并集，保序去重
+    union = list(dict.fromkeys(mod_deps + pkg_imports))  # 并集，保序去重（原样展示）
+    # 条目比对时剥离 `@version` 后缀再判白名单（"moonbitlang/x@0.4.6" → "moonbitlang/x"）
+    union_cmp = [strip_version(e) for e in union]
 
     def allowed(entry: str) -> bool:
         if entry == "moonbitlang/core" or entry.startswith("moonbitlang/core/"):
@@ -124,8 +145,9 @@ def check(mod_path: Path, pkg_path: Path) -> int:
     print(f"[check_deps] moon.mod deps    = {mod_deps}")
     print(f"[check_deps] moon.pkg imports = {pkg_imports}")
     print(f"[check_deps] import 并集      = {union}")
+    print(f"[check_deps] 并集(剥离@version) = {union_cmp}")
 
-    offenders = [e for e in union if not allowed(e)]
+    offenders = [e for e in union_cmp if not allowed(e)]
     for e in offenders:
         print(f"[check_deps] NON-WHITELIST: {e}")
     print(f"[check_deps] 白名单外条目计数 = {len(offenders)}")
