@@ -4,7 +4,7 @@ version = "0.1.0"
 
 readme = "README.md"
 
-repository = "https://github.com/vicoplus/moon_cpca"
+repository = "https://github.com/NieAnSHOW/moon_cpca"
 
 license = "MIT"
 

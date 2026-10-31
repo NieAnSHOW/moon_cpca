@@ -31,5 +31,5 @@
 | 目标 | 状态 | 证据 |
 |------|------|------|
 | native | green | 本机 `moon run --target native example` 退出 0 且 stdout 与 README 逐行一致；`moon test --target native --no-render` 40/40 通过 |
-| wasm-gc | green | CI 首次完整运行 [run 39060316841](https://github.com/vicoplus/moon_cpca/actions/runs/39060316841)（job `wasm-gc`，commit `c6a7e74`）：`moon build --target wasm-gc` 退出 0，`moon test --target wasm-gc --no-render` 输出 `Total tests: 40, passed: 40, failed: 0`；本机测试二进制因 loader 报 `0xc0000139` 不可执行（已由 CI 回补） |
-| js | green | CI 首次完整运行 [run 39060316841](https://github.com/vicoplus/moon_cpca/actions/runs/39060316841)（job `js`，commit `c6a7e74`）：`moon test --target js --no-render` 输出 `Total tests: 40, passed: 40, failed: 0`，artifact `js-status` 内容为 `green`；本机 node 垫片缺失不可执行 |
+| wasm-gc | green | CI 迁移后首次完整运行 [run 41189175104](https://github.com/NieAnSHOW/moon_cpca/actions/runs/41189175104)（job `wasm-gc`，commit `5841095`）：`moon build --target wasm-gc` 退出 0，`moon test --target wasm-gc --no-render` 输出 `Total tests: 40, passed: 40, failed: 0`；本机测试二进制因 loader 报 `0xc0000139` 不可执行（已由 CI 回补） |
+| js | green | CI 迁移后首次完整运行 [run 41189175104](https://github.com/NieAnSHOW/moon_cpca/actions/runs/41189175104)（job `js`，commit `5841095`）：`moon test --target js --no-render` 输出 `Total tests: 40, passed: 40, failed: 0`，artifact `js-status` 内容为 `green`；本机 node 垫片缺失不可执行 |

@@ -5,7 +5,7 @@
 - 项目名称：moon_cpca —— 中文省市区三级行政区划地址解析库
 - 项目类型：移植项目（Python → MoonBit）
 - 项目方向：新生态项目建设；通用性：中文文本数据清洗的结构化基础件，服务数据分析、后端服务、表单交互等通用场景
-- GitHub 仓库：https://github.com/vicoplus/moon_cpca.git
+- GitHub 仓库：https://github.com/NieAnSHOW/moon_cpca.git
 
 **项目简介**
 
